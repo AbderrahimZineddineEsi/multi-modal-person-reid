@@ -1,0 +1,30 @@
+# Team materials — other team members' contributions, not authored here
+team_materials/
+
+# Large media / recordings
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Model weights & datasets
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.zip
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,565 @@
+--- current.py	2026-05-18 16:33:13.354354502 +0100
++++ heatmap.py	2026-05-18 16:33:13.340815448 +0100
+@@ -116,67 +116,7 @@
+ 
+ print("Loading BotSort tracker...")
+ 
+-REID_WEIGHTS = "osnet_x0_25_msmt17.pt"
+-
+-
+-
+-def _make_botsort_tracker():
+-
+-    import inspect
+-
+-    from pathlib import Path
+-
+-    from boxmot.trackers.botsort.botsort import BotSort
+-
+-    
+-
+-    # Fully solve the 404 issue without bypassing BotSort's capabilities:
+-
+-    # Instead of osnet, use the `clip_market1501.pt` model. We KNOW this asset 
+-
+-    # natively downloads successfully on Kaggle (it's initialized right below
+-
+-    # by the ReID block). This gives BotSort a highly accurate tracker model 
+-
+-    # without network errors!
+-
+-    weights_path = Path("clip_market1501.pt")
+-
+-
+-
+-    sig = inspect.signature(BotSort.__init__)
+-
+-    kwargs = {}
+-
+-    
+-
+-    if "model_weights" in sig.parameters: kwargs["model_weights"] = weights_path
+-
+-    elif "reid_weights" in sig.parameters: kwargs["reid_weights"] = str(weights_path)
+-
+-    elif "weights" in sig.parameters: kwargs["weights"] = weights_path
+-
+-    elif "reid_model" in sig.parameters: kwargs["reid_model"] = reid_model.model  
+-
+-
+-
+-    if "device" in sig.parameters: kwargs["device"] = DET_DEVICE
+-
+-    
+-
+-    if "fp16" in sig.parameters: kwargs["fp16"] = False
+-
+-    elif "half" in sig.parameters: kwargs["half"] = False
+-
+-
+-
+-    tracker = BotSort(**kwargs)
+-
+-    return tracker
+-
+-
+-
+-tracker_template = _make_botsort_tracker
++tracker_template = lambda: BotSort(reid_weights='osnet_x0_25_msmt17.pt', device=DET_DEVICE, half=False)
+ 
+ 
+ 
+@@ -1496,15 +1436,9 @@
+ 
+         if torch.cuda.is_available():
+ 
+-            total_used = 0
+-
+-            for i in range(torch.cuda.device_count()):
+-
+-                free, total = torch.cuda.mem_get_info(i)
+-
+-                total_used += (total - free)
++            free, total = torch.cuda.mem_get_info(0)
+ 
+-            return total_used / 1024**2
++            return (total - free) / 1024**2
+ 
+         return 0.0
+ 
+@@ -1918,6 +1852,204 @@
+ 
+ 
+ 
++# ═══════════════════════════════════════════════════════════════
++
++# HEATMAP (person positions on a fixed camera-frame background)
++
++# ═══════════════════════════════════════════════════════════════
++
++DEFAULT_HEATMAP_BACKGROUND_PATH = "/kaggle/input/datasets/laponjade/camera-shop-images/store_cam3_frame0.jpg"
++
++
++
++
++
++def _bbox_centers_from_sightings(sightings):
++
++    """Return list of (cx, cy, x1, y1, x2, y2) in pixel coords from `best_crop_bbox`."""
++
++    pts = []
++
++    for s in sightings:
++
++        bb = s.get("best_crop_bbox")
++
++        if not bb or len(bb) != 4:
++
++            continue
++
++        x1, y1, x2, y2 = [float(v) for v in bb]
++
++        cx = (x1 + x2) / 2.0
++
++        cy = (y1 + y2) / 2.0
++
++        pts.append((cx, cy, x1, y1, x2, y2))
++
++    return pts
++
++
++
++
++
++def load_default_heatmap_background():
++
++    """Load the fixed camera-frame image used as the heatmap background."""
++
++    bg_bgr = cv2.imread(DEFAULT_HEATMAP_BACKGROUND_PATH, cv2.IMREAD_COLOR)
++
++    if bg_bgr is None:
++
++        return None, f"Could not load heatmap background: `{DEFAULT_HEATMAP_BACKGROUND_PATH}`"
++
++    return cv2.cvtColor(bg_bgr, cv2.COLOR_BGR2RGB), ""
++
++
++
++
++
++def build_person_heatmap(sightings, background_rgb=None,
++
++                         sigma_small=4, heat_scale=0.10, alpha=0.6,
++
++                         draw_centers=True):
++
++    """
++
++    Render a heatmap of a person's bbox-center positions over the fixed camera frame.
++
++
++
++    Hot zones are stamped as small disks before blur so each detection produces a
++
++    visibly larger area on the heatmap (zone size scales with `sigma_small`).
++
++    """
++
++    pts = _bbox_centers_from_sightings(sightings)
++
++    if not pts:
++
++        return None, "No bbox positions available for this person."
++
++
++
++    if background_rgb is not None and background_rgb.size > 0:
++
++        bg = cv2.cvtColor(background_rgb, cv2.COLOR_RGB2BGR).copy()
++
++        H, W = bg.shape[:2]
++
++        scale_note = f"(using fixed camera frame `{DEFAULT_HEATMAP_BACKGROUND_PATH}` at {W}x{H})"
++
++    else:
++
++        max_x = max(p[4] for p in pts)
++
++        max_y = max(p[5] for p in pts)
++
++        W = int(max(640, max_x * 1.05))
++
++        H = int(max(480, max_y * 1.05))
++
++        bg = np.full((H, W, 3), 32, dtype=np.uint8)
++
++        scale_note = f"(fallback canvas {W}x{H}; fixed camera frame could not be loaded)"
++
++
++
++    Hs = max(32, int(H * heat_scale))
++
++    Ws = max(32, int(W * heat_scale))
++
++    heat_small = np.zeros((Hs, Ws), dtype=np.float32)
++
++
++
++    # Bigger hot zones: stamp a disk around each detection on the low-res grid.
++
++    stamp_r = max(2, int(round(sigma_small * 1.1)))
++
++
++
++    for (cx, cy, *_rest) in pts:
++
++        x = int(np.clip(round(cx * (Ws - 1) / max(1, W - 1)), 0, Ws - 1))
++
++        y = int(np.clip(round(cy * (Hs - 1) / max(1, H - 1)), 0, Hs - 1))
++
++
++
++        y0 = max(0, y - stamp_r)
++
++        y1s = min(Hs - 1, y + stamp_r)
++
++        x0 = max(0, x - stamp_r)
++
++        x1s = min(Ws - 1, x + stamp_r)
++
++
++
++        for yy in range(y0, y1s + 1):
++
++            dy = yy - y
++
++            for xx in range(x0, x1s + 1):
++
++                dx = xx - x
++
++                if dx * dx + dy * dy <= stamp_r * stamp_r:
++
++                    heat_small[yy, xx] += 1.0
++
++
++
++    k = int(max(3, (sigma_small * 6) | 1))
++
++    heat_small = cv2.GaussianBlur(heat_small, (k, k), sigmaX=sigma_small, sigmaY=sigma_small)
++
++    heat = cv2.resize(heat_small, (W, H), interpolation=cv2.INTER_LINEAR)
++
++    heat_norm = heat / (heat.max() + 1e-9)
++
++    heat_u8 = (heat_norm * 255).astype(np.uint8)
++
++    heat_color = cv2.applyColorMap(heat_u8, cv2.COLORMAP_JET)
++
++
++
++    overlay = cv2.addWeighted(bg, 1.0 - alpha, heat_color, alpha, 0)
++
++
++
++    if draw_centers:
++
++        cx, cy, bx1, by1, bx2, by2 = pts[-1]
++
++        cv2.circle(overlay, (int(cx), int(cy)), max(6, int(0.005 * max(H, W))),
++
++                   (0, 0, 255), -1, lineType=cv2.LINE_AA)
++
++        cv2.rectangle(overlay,
++
++                      (max(0, int(bx1)), max(0, int(by1))),
++
++                      (min(W - 1, int(bx2)), min(H - 1, int(by2))),
++
++                      (0, 255, 255), thickness=max(1, int(0.002 * max(H, W))),
++
++                      lineType=cv2.LINE_AA)
++
++
++
++    info = f"Heatmap built from **{len(pts)}** sighting position(s) {scale_note}."
++
++    return cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB), info
++
++
++
++
++
+ print("✅ Pipeline & search functions defined.")
+ # ═══════════════════════════════════════════════════════════════
+ 
+@@ -2235,6 +2367,8 @@
+ 
+ }
+ 
++
++
+ .gradio-container .html, .gradio-container .markdown {
+ 
+     overflow: visible !important;
+@@ -2507,13 +2641,15 @@
+ 
+ 
+ 
+-def run_search(image, image_url, search_mode, is_face_crop, body_threshold, face_threshold, tau):
++def run_search(image, image_url, search_mode, is_face_crop, body_threshold, face_threshold, tau,
++
++               heatmap_alpha=0.6, heatmap_sigma=5):
+ 
+     if image is None and not image_url:
+ 
+-        return "Please upload an image or provide a URL.", None, ""
++        return "Please upload an image or provide a URL.", None, "", None, ""
++
+ 
+-    
+ 
+     if image is None and image_url:
+ 
+@@ -2533,7 +2669,7 @@
+ 
+         except Exception as e:
+ 
+-            return f"Failed to load image from URL: {e}", None, ""
++            return f"Failed to load image from URL: {e}", None, "", None, ""
+ 
+ 
+ 
+@@ -2605,7 +2741,13 @@
+ 
+     if face_result and face_result["status"] == "MATCH": best_gid = face_result["global_id"]
+ 
+-    if best_gid:
++
++
++    heatmap_img = None
++
++    heatmap_info = ""
++
++    if best_gid is not None:
+ 
+         info, _, _ = get_person_details(best_gid)
+ 
+@@ -2613,7 +2755,33 @@
+ 
+ 
+ 
+-    return "\n\n".join(lines), display_img, details
++        # Build heatmap on the fixed camera-frame background.
++
++        person_doc = persons_col.find_one({"global_id": int(best_gid)}, {"_id": 0, "sightings": 1})
++
++        sightings = (person_doc or {}).get("sightings", [])
++
++        camera_bg_rgb, bg_warning = load_default_heatmap_background()
++
++        heatmap_img, heatmap_info = build_person_heatmap(
++
++            sightings,
++
++            background_rgb=camera_bg_rgb,
++
++            sigma_small=int(heatmap_sigma),
++
++            alpha=float(heatmap_alpha),
++
++        )
++
++        if bg_warning:
++
++            heatmap_info = f"{bg_warning}\n\n{heatmap_info}"
++
++
++
++    return "\n\n".join(lines), display_img, details, heatmap_img, heatmap_info
+ 
+ 
+ 
+@@ -2625,7 +2793,7 @@
+ 
+ # ═══════════════════════════════════════════════════════════════
+ 
+-_last_run = {"gallery": None, "sighting_tracker": None, "is_face": True, "camera_id": CAMERA_ID}
++_last_run = {"gallery": None, "sighting_tracker": None, "is_face": True}
+ 
+ 
+ 
+@@ -3001,22 +3169,12 @@
+ 
+ 
+ 
+-def run_video_handler(video_file, video_path_text, camera_id, is_face, use_existing,
++def run_video_handler(video_file, video_path_text, is_face, use_existing,
+ 
+                       conf, tau, min_cos, max_img, pose_c, min_vis,
+ 
+                       face_c, face_m, udm_e, udm_s, progress=gr.Progress(track_tqdm=True)):
+ 
+-    global CAMERA_ID
+-
+-    cam_val = (camera_id or "").strip()
+-
+-    if cam_val:
+-
+-        CAMERA_ID = cam_val
+-
+-
+-
+     path = video_path_text.strip() if video_path_text.strip() else None
+ 
+     if video_file is not None:
+@@ -3055,8 +3213,6 @@
+ 
+     _last_run["is_face"] = face_flag
+ 
+-    _last_run["camera_id"] = CAMERA_ID
+-
+ 
+ 
+     report = build_results_html(gallery_out, st_out, video_info, summary)
+@@ -3079,10 +3235,6 @@
+ 
+         return '<div style="background:#7f1d1d;color:#fca5a5;padding:12px 20px;border-radius:10px;margin-top:8px;">No pipeline results to save. Run the pipeline first.</div>'
+ 
+-    global CAMERA_ID
+-
+-    CAMERA_ID = _last_run.get("camera_id", CAMERA_ID)
+-
+     result = save_results_to_cloud(g, st, _last_run["is_face"])
+ 
+     lines_html = result.replace("\n", "<br>")
+@@ -3391,8 +3543,6 @@
+ 
+                 with gr.Column(scale=1):
+ 
+-                    cam_id = gr.Textbox(label="Camera ID", value=CAMERA_ID, placeholder="cam_01")
+-
+                     is_face = gr.Checkbox(label="Face Camera", value=True)
+ 
+                     use_existing = gr.Checkbox(label="Load existing gallery from Pinecone", value=True)
+@@ -3459,7 +3609,7 @@
+ 
+                 fn=run_video_handler,
+ 
+-                inputs=[vid_file, vid_path, cam_id, is_face, use_existing,
++                inputs=[vid_file, vid_path, is_face, use_existing,
+ 
+                         conf_sl, tau_sl, cos_sl, budget_sl, pose_sl, vis_sl, fc_sl, fm_sl, ue_sl, us_sl],
+ 
+@@ -3489,6 +3639,12 @@
+ 
+                 with gr.Column(scale=1):
+ 
++                    gr.Markdown(
++
++                        f"**Heatmap background:** `{DEFAULT_HEATMAP_BACKGROUND_PATH}`"
++
++                    )
++
+                     with gr.Accordion("Search Settings", open=False):
+ 
+                         body_th = gr.Slider(0.3, 1.0, value=0.75, step=0.05, label="Body Threshold")
+@@ -3497,6 +3653,12 @@
+ 
+                         search_tau = gr.Slider(0.5, 5.0, value=2.0, step=0.1, label="Tau")
+ 
++                    with gr.Accordion("Heatmap Settings", open=False):
++
++                        heat_alpha = gr.Slider(0.1, 1.0, value=0.6, step=0.05, label="Overlay Alpha")
++
++                        heat_sigma = gr.Slider(1, 14, value=5, step=1, label="Hot Zone Size (sigma)")
++
+                     search_btn = gr.Button("Search", variant="primary", size="lg")
+ 
+                     proto_btn = gr.Button("Rebuild Body Prototypes", variant="secondary")
+@@ -3507,17 +3669,29 @@
+ 
+             search_summary = gr.Markdown(label="Search Results")
+ 
+-            match_img = gr.Image(label="Best Match", height=300)
++            with gr.Row():
++
++                match_img = gr.Image(label="Best Match", height=300)
++
++                heatmap_img = gr.Image(label="Person Heatmap (positions on camera frame)", height=300)
++
++            heatmap_info = gr.Markdown()
+ 
+             person_details = gr.HTML()
+ 
+ 
+ 
+-            search_btn.click(fn=run_search,
++            search_btn.click(
++
++                fn=run_search,
++
++                inputs=[search_img, search_url, search_mode, is_crop,
++
++                        body_th, face_th, search_tau, heat_alpha, heat_sigma],
+ 
+-                inputs=[search_img, search_url, search_mode, is_crop, body_th, face_th, search_tau],
++                outputs=[search_summary, match_img, person_details, heatmap_img, heatmap_info],
+ 
+-                outputs=[search_summary, match_img, person_details])
++            )
+ 
+             proto_btn.click(fn=rebuild_prototypes, outputs=[proto_out])
+ 
+@@ -3557,8 +3731,6 @@
+ 
+                                         elem_classes=["min-height-block"])
+ 
+-
+-
+                     refresh_btn.click(fn=browse_all_html, outputs=[bulk_html])
+ 
+ 
+@@ -3595,42 +3767,4 @@
+ 
+ print("Dashboard built. Run the next cell to launch.")
+ 
+-import gradio as gr
+-
+-
+-
+-# Clean up any stuck background Gradio servers
+-
+-try:
+-
+-    gr.close_all()
+-
+-except Exception:
+-
+-    pass
+-
+-
+-
+-print("Starting Gradio...")
+-
+-print("⏳ Please wait for the PUBLIC URL (it will end in .gradio.live)")
+-
+-print("⚠️ Note: The cell must stay running to keep the server alive.")
+-
+-
+-
+-# Use the standard blocking share method. 
+-
+-# Bypassing the proxy/threading hacks which often fail in Kaggle.
+-
+-demo.queue().launch(
+-
+-    share=True,
+-
+-    server_name="127.0.0.1",
+-
+-    inline=False,
+-
+-    debug=True
+-
+-)
++demo.launch(share=True, server_port=7860)
