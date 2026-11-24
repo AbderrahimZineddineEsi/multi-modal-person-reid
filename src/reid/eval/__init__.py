@@ -89,6 +89,7 @@ def evaluate(
         pct = mot.per_camera(gt, hyp, iou, cameras, "tid")
         acc = mot.build_accumulator(gt, hyp, iou, cameras, "hid", combined=True)
         pairs = mot.pair_counts(acc)
+        acc_t = mot.build_accumulator(gt, hyp, iou, cameras, "tid", combined=True)
         n_gids = int(hyp.loc[hyp["gid"].notna(), "gid"].nunique())
         result: dict[str, Any] = {
             "timestamp": time.time(),
@@ -116,6 +117,7 @@ def evaluate(
             "per_camera_tracklet": pct,
             "mtmc": mot.summarize(acc),
             "fragmentation": mot.fragmentation(pairs, int(gt["gid"].nunique()), n_gids),
+            "tracklet_purity": mot.tracklet_purity(mot.pair_counts(acc_t), hyp),
         }
         if retrieval:
             from reid.eval.retrieval import run_retrieval

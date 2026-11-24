@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import shutil
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -79,7 +81,9 @@ class FaceModel:
 
     def _build(self, providers: list, ctx_id: int) -> None:
         from insightface.app import FaceAnalysis
+        from insightface.utils.storage import ensure_available
 
+        flatten_model_pack(Path(ensure_available("models", self.name, root=self.root)))
         self._app = FaceAnalysis(
             name=self.name,
             root=self.root,
@@ -126,3 +130,18 @@ class FaceModel:
         canvas[p : p + h, p : p + w] = face_chip
         res = self.analyze(canvas)
         return max(res, key=lambda r: r[2])[3] if res else None
+
+
+def flatten_model_pack(pack: Path) -> None:
+    """Move ``<pack>/<name>/*.onnx`` up to ``<pack>`` (the antelopev2 zip nests its folder).
+
+    InsightFace only looks for ``*.onnx`` directly in ``<pack>`` and otherwise fails with a bare
+    ``assert "detection" in self.models``.
+    """
+    inner = pack / pack.name
+    if not inner.is_dir() or any(pack.glob("*.onnx")):
+        return
+    for f in inner.iterdir():
+        shutil.move(str(f), str(pack / f.name))
+    inner.rmdir()
+    log.info("flattened nested model pack %s", pack)

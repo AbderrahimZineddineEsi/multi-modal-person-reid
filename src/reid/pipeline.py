@@ -20,7 +20,7 @@ import numpy as np
 from reid.config import CameraSet, CameraSpec, Config
 from reid.models.registry import Models, build_models
 from reid.storage import db, files
-from reid.tracking.tracker import Tracker
+from reid.tracking.tracker import Tracker, appearance_active
 from reid.tracking.tracklets import TrackletBuilder
 from reid.types import CameraInfo, Tracklet
 
@@ -51,6 +51,7 @@ class CameraStats:
     tracklets_with_face: int = 0
     wall_s: float = 0.0
     rejects: dict[str, int] = field(default_factory=dict)  # sample-gate rejections by reason
+    splits: int = 0  # tracklets cut at an appearance change (ID switches inside the tracker)
 
 
 @dataclass
@@ -122,6 +123,17 @@ def _store_crops(conn: sqlite3.Connection, data_dir, cfg: Config, t: Tracklet) -
         )
 
 
+def detection_embeddings(models: Models, frame: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+    """Body embeddings of every detection box (unpadded crops, clamped to the frame)."""
+    h, w = frame.shape[:2]
+    crops = []
+    for x1, y1, x2, y2 in np.asarray(boxes).reshape(-1, 4):
+        a, b = min(max(int(x1), 0), w - 2), min(max(int(y1), 0), h - 2)
+        c, d = max(min(int(np.ceil(x2)), w), a + 2), max(min(int(np.ceil(y2)), h), b + 2)
+        crops.append(frame[b:d, a:c])
+    return models.body.embed(crops)
+
+
 def _camera_info(spec: CameraSpec, fps: float, w: int, h: int) -> CameraInfo:
     return CameraInfo(
         id=spec.id,
@@ -170,6 +182,7 @@ def _process_camera(
         log.info("camera %s: %dx%d @ %.3f fps, frames %d..%s", spec.id, w, h, fps, start_f, end_f)
 
         tracker = Tracker(cfg.tracking)
+        use_app = appearance_active(cfg.tracking)
         builder = TrackletBuilder(cfg, cam, models, fps)
         stats = CameraStats(spec.id, fps=fps)
         t_cam = time.perf_counter()
@@ -196,11 +209,17 @@ def _process_camera(
             with models.stage("detect"):
                 boxes, confs, kps = models.detector.detect(frame)
             t1 = time.perf_counter()
-            tracks = tracker.update(boxes, confs, frame)
+            embs = None
+            if use_app:  # the tracker's appearance cue; also reused for tracklet samples
+                with models.stage("reid"):
+                    embs = detection_embeddings(models, frame, boxes)
             t2 = time.perf_counter()
+            ms["reid"] += (t2 - t1) * 1e3
+            tracks = tracker.update(boxes, confs, frame, embs)
+            t3 = time.perf_counter()
             ms["detect"] += (t1 - t0) * 1e3
-            ms["track"] += (t2 - t1) * 1e3
-            commit(builder.process(frame_idx, frame, tracks, kps))
+            ms["track"] += (t3 - t2) * 1e3
+            commit(builder.process(frame_idx, frame, tracks, kps, embs))
             stats.frames_processed += 1
             if progress is not None:
                 progress(spec.id, frame_idx - start_f + 1, todo)
@@ -210,6 +229,7 @@ def _process_camera(
             ms[k] += v
         stats.wall_s = time.perf_counter() - t_cam
         stats.rejects = dict(builder.rejects)
+        stats.splits = builder.n_splits
         log.info("camera %s: rejected sample candidates %s", spec.id, stats.rejects)
         return stats
     finally:

@@ -120,6 +120,19 @@ class TrackingCfg(_Section):
         True, "BoT-SORT camera-motion compensation (needs frames; ignored by others)."
     )
     match_thresh: float = _f(0.8, "IoU-distance threshold for association.", ge=0, le=1)
+    appearance: bool = _f(
+        False,
+        "Feed the body ReID embedding of every detection to the tracker (botsort/occluboost) so "
+        "it does not swap people who cross. Costs one body embedding per detection per processed "
+        "frame; the embeddings are reused for tracklet samples. ByteTrack ignores it (warning).",
+    )
+    appearance_thresh: float = _f(
+        0.25,
+        "BoT-SORT: max cosine distance for an appearance match (paper default 0.25; with "
+        "CLIP-ReID same-person distances are ~0.04-0.12, different people ~0.4-0.95).",
+        ge=0,
+        le=2,
+    )
 
 
 class BodyReidCfg(_Section):
@@ -158,6 +171,27 @@ class TrackletsCfg(_Section):
         ge=0,
     )
     max_samples_per_tracklet: int = _f(16, "Keep the best-quality samples up to this number.", ge=1)
+    split_on_appearance: bool = _f(
+        True,
+        "Split a tracklet where its appearance changes abruptly (an ID switch inside the tracker, "
+        "typically when two people cross) so each piece describes one person.",
+    )
+    split_min_sim: float = _f(
+        0.7,
+        "Split if the cosine similarity of the mean embeddings before/after the best change "
+        "point is below this. Calibrated on AI City scene 075 with CLIP-ReID: halves of one "
+        "person >= 0.88 (median 0.96), different people <= 0.58 (median 0.17).",
+        ge=0,
+        le=1,
+    )
+    split_min_samples: int = _f(3, "Minimum embedded samples on each side of a split.", ge=1)
+    max_history: int = _f(
+        400,
+        "Embedded samples kept per open track for split detection and per-piece sample choice "
+        "(about 20 KB each). Beyond it the older half is thinned, so a person in view for hours "
+        "does not grow memory without bound.",
+        ge=16,
+    )
     min_points: int = _f(5, "Drop tracks shorter than this many boxes entirely (flicker).", ge=1)
     crop_pad: float = _f(0.0, "Relative padding added around body crops saved to disk.", ge=0)
     save_crops: bool = _f(True, "Write the best body crop of each tracklet to data_dir/crops.")

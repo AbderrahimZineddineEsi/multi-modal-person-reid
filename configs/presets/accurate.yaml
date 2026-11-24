@@ -8,6 +8,7 @@ quality:
   pose_model: yolo26s-pose.pt
   pose_imgsz: 320
 tracking:
+  appearance: true          # the tracker compares appearance so people who cross are not swapped (costs speed)
   tracker: botsort
 body_reid:
   model: clipreid_msmt17

@@ -100,3 +100,14 @@ def test_body_reid_fp16_matches_fp32(preset, monkeypatch):
     emb = half.embed(crops)
     assert emb.dtype == np.float32 and emb.shape == ref.shape
     assert np.all((emb * ref).sum(1) > 0.99)  # same embeddings up to fp16 rounding
+
+
+def test_flatten_nested_face_pack(tmp_path):
+    from reid.models.face import flatten_model_pack
+
+    pack = tmp_path / "antelopev2"
+    (pack / "antelopev2").mkdir(parents=True)
+    (pack / "antelopev2" / "scrfd_10g_bnkps.onnx").write_bytes(b"x")
+    flatten_model_pack(pack)
+    assert (pack / "scrfd_10g_bnkps.onnx").exists() and not (pack / "antelopev2").exists()
+    flatten_model_pack(pack)  # idempotent

@@ -10,6 +10,7 @@ quality:
   pose_model: yolo26m-pose.pt
   pose_imgsz: 384
 tracking:
+  appearance: true          # the tracker compares appearance so people who cross are not swapped (costs speed)
   tracker: occluboost
 body_reid:
   model: clipreid_msmt17

@@ -176,3 +176,21 @@ Observations (one synthetic scene, 7-10 people, so indicative only):
 - `share=True` (a real gradio.live link) was not opened; only the argument handling is tested.
 - Browser-side layout was checked at 1360 px wide only; the CSS uses fluid grids and was not tested on a phone-sized viewport.
 - Stage timings of runs started from the CLI are not persisted anywhere, so the Metrics tab shows them only for runs started in the app (a follow-up would be to have `reid process` write the same JSON).
+
+## P7 fixes
+
+- [tracking] v1: BotSort ran with appearance (CLIP-ReID) -> v2 (P2): motion-only (W1, efficiency) -> P7: that regressed. When two people cross, the motion-only tracker sometimes swaps them, so one tracklet contains person A and then person B; the tracklet-level identity layer cannot undo that (it saw one blended embedding, assigned one gid and sometimes created a duplicate identity). Measured on AI City scene 075 with the new metric: 2 of 54 tracklets mixed two GT people. Why: fixed in two layers below.
+- [tracklets] v1: n/a -> v2: `TrackletBuilder` keeps the chronological history of every embedded sample (with a JPEG of its padded crop) and, per point, the max IoU with other tracks of the same frame. On finalization a tracklet is split where the appearance changes abruptly: best change point `k` minimising cos(mean(e[:k]), mean(e[k:])) with at least `split_min_samples` (3) samples per side, split if below `split_min_sim` (0.7), recursively. The cut frame is the point between the two neighbouring samples with the highest overlap (where people crossed), the middle one among ties (no overlap: the middle of the gap). Each piece is its own tracklet (own top-16 samples, best crop, faces, embeddings; `min_points` applies per piece). Config `tracklets.split_on_appearance` / `split_min_sim` / `split_min_samples`; the per-camera `splits` count is in the `reid process` JSON. Why: calibrated on the AI City run with CLIP-ReID: two halves of one person's tracklet >= 0.88 (median 0.96), different people <= 0.58 (median 0.17), the two halves of the mixed tracklets 0.05 and 0.04.
+- [tracking] v1: appearance tracking always on -> v2: optional `tracking.appearance` (default off) and `tracking.appearance_thresh` (0.25, BoT-SORT paper). When on (botsort, occluboost; ByteTrack warns and runs motion-only) the pipeline embeds every detection crop with the body model, passes them to the tracker, and reuses them as tracklet samples (no double embedding). boxmot 26 only takes embeddings through its canonical `Detections` object (the NumPy path cannot carry them) and builds its own ReID model only when none are supplied, so none is loaded. Why: costs one body embedding per detection per processed frame, so it is a choice, not the default.
+- [eval] new metric `tracklet_purity` (tracklets matched to >= 2 GT people with >= 5 boxes each, and the box-weighted purity), listed in `reid evaluate` under "Fragmentation and purity". Why: box-level metrics barely notice a short swap, but it is what a user sees as "person 1 is two people".
+- [tracklets] `max_history` (400): the per-track sample history is thinned (older half at half density, best sample kept) beyond this, so memory stays bounded for people in view for hours.
+- [results] AI City scene 075, 4 cameras, 2 min, balanced, frame_stride 2 (same clip as the user's Colab run):
+
+  | | combined IDF1 | identities (10 GT people) | GT people split over >1 gid | gids mixing people | mixed tracklets | Rank-1 | fps (GTX 1050) |
+  |---|---|---|---|---|---|---|---|
+  | motion-only (before) | 82.4% | 11 | 2 | 1 | 1 (365 + 248 boxes) | 92.0% | 16.7 |
+  | + split (balanced default) | 89.4% | 10 | 0 | 0 | 0 (1 split) | 96.0% | 16.9 |
+  | + split + appearance tracking (accurate/max default) | 90.4% | 10 | 0 | 0 | 0 (no swap happened) | 96.0% | 9.6 |
+
+  Preset defaults: splitting on everywhere (free); appearance tracking on in `accurate` and `max` (quality first), off in `balanced` (speed) and unavailable in `lite` (ByteTrack).
+- [face] `antelopev2` (max preset) never loaded: its zip nests the model folder (`antelopev2/antelopev2/*.onnx`), so InsightFace failed with a bare `assert "detection" in self.models`. The loader now downloads the pack and flattens it first. Found while smoke-testing `max` with appearance tracking.

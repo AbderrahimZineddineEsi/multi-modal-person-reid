@@ -89,6 +89,14 @@ tracking:
   use_cmc: true
   # IoU-distance threshold for association. (default: 0.8)
   match_thresh: 0.8
+  # Feed the body ReID embedding of every detection to the tracker (botsort/occluboost) so it
+  # does not swap people who cross. Costs one body embedding per detection per processed frame;
+  # the embeddings are reused for tracklet samples. ByteTrack ignores it (warning). (default:
+  # false)
+  appearance: false
+  # BoT-SORT: max cosine distance for an appearance match (paper default 0.25; with CLIP-ReID
+  # same-person distances are ~0.04-0.12, different people ~0.4-0.95). (default: 0.25)
+  appearance_thresh: 0.25
 
 # --- body_reid: Body ReID embedder.
 body_reid:
@@ -117,6 +125,19 @@ tracklets:
   min_samples: 2
   # Keep the best-quality samples up to this number. (default: 16)
   max_samples_per_tracklet: 16
+  # Split a tracklet where its appearance changes abruptly (an ID switch inside the tracker,
+  # typically when two people cross) so each piece describes one person. (default: true)
+  split_on_appearance: true
+  # Split if the cosine similarity of the mean embeddings before/after the best change point is
+  # below this. Calibrated on AI City scene 075 with CLIP-ReID: halves of one person >= 0.88
+  # (median 0.96), different people <= 0.58 (median 0.17). (default: 0.7)
+  split_min_sim: 0.7
+  # Minimum embedded samples on each side of a split. (default: 3)
+  split_min_samples: 3
+  # Embedded samples kept per open track for split detection and per-piece sample choice (about
+  # 20 KB each). Beyond it the older half is thinned, so a person in view for hours does not
+  # grow memory without bound. (default: 400)
+  max_history: 400
   # Drop tracks shorter than this many boxes entirely (flicker). (default: 5)
   min_points: 5
   # Relative padding added around body crops saved to disk. (default: 0.0)

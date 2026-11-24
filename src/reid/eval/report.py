@@ -67,8 +67,20 @@ def to_markdown(r: dict[str, Any]) -> str:
         f"| gids covering >1 GT person | {fr['gid_impure']} / {fr['n_system_gids']} |",
         f"| gid purity (box-weighted) | {_f(fr['gid_purity'], True)} |",
         f"| GT completeness (box-weighted) | {_f(fr['gt_completeness'], True)} |",
-        f"| matched boxes unidentified | {fr['matched_boxes_unidentified']} |", "",
+        f"| matched boxes unidentified | {fr['matched_boxes_unidentified']} |",
     ]  # fmt: skip
+    tp = r.get("tracklet_purity")
+    if tp:
+        out += [
+            f"| tracklets mixing >1 GT person (ID switch inside the tracker) "
+            f"| {tp['mixed']} / {tp['tracklets']} |",
+            f"| tracklet purity (box-weighted) | {_f(tp['purity'], True)} |",
+        ]
+        for e in tp["examples"]:
+            people = ", ".join(f"GT {o}: {n} boxes" for o, n in e["gt_boxes"].items())
+            out.append(f"| mixed tracklet {e['tracklet']} ({e['camera']}, gid {e['gid']}) "
+                       f"| {people} |")  # fmt: skip
+    out.append("")
     rt = r.get("retrieval")
     if rt:
         out += [

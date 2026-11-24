@@ -185,3 +185,43 @@ def majority_gt(pairs: pd.DataFrame) -> dict[int, int]:
         "hid"
     )
     return {int(h): int(o) for h, o in zip(best["hid"], best["oid"], strict=True)}
+
+
+def tracklet_purity(pairs: pd.DataFrame, hyp: pd.DataFrame, min_boxes: int = 5) -> dict[str, Any]:
+    """ID switches *inside* tracklets, from :func:`pair_counts` of a tracklet-id accumulator.
+
+    A tracklet is "mixed" if it is matched to two or more GT people with >= ``min_boxes``
+    matched boxes each: the tracker swapped people (typically when they cross) and everything
+    downstream sees one person. Box-level metrics barely notice a short swap, but the identity
+    layer then assigns a blended appearance to one gid, which is far more visible to a user.
+
+    * ``mixed``: number of mixed tracklets (0 is ideal), out of ``tracklets`` matched ones;
+    * ``purity``: share of matched boxes that belong to their tracklet's majority GT person;
+    * ``examples``: the mixed tracklets (id, camera, gid, matched boxes per GT person).
+    """
+    if pairs.empty:
+        return {"tracklets": 0, "mixed": 0, "purity": None, "min_boxes": min_boxes, "examples": []}
+    total = int(pairs["n"].sum())
+    strong = pairs[pairs["n"] >= min_boxes]
+    n_gt = strong.groupby("hid")["oid"].nunique()
+    mixed = sorted(int(t) for t in n_gt[n_gt > 1].index)
+    info = hyp.drop_duplicates("tid").set_index("tid")
+    examples = []
+    for t in mixed:
+        g = pairs[pairs["hid"] == t].sort_values("n", ascending=False)
+        gid = info.at[t, "gid"] if t in info.index else None
+        examples.append(
+            {
+                "tracklet": t,
+                "camera": str(info.at[t, "camera"]) if t in info.index else None,
+                "gid": None if gid is None or pd.isna(gid) else int(gid),
+                "gt_boxes": {str(o): int(n) for o, n in zip(g["oid"], g["n"], strict=True)},
+            }
+        )
+    return {
+        "tracklets": int(pairs["hid"].nunique()),
+        "mixed": len(mixed),
+        "purity": _clean(pairs.groupby("hid")["n"].max().sum() / total),
+        "min_boxes": min_boxes,
+        "examples": examples,
+    }
