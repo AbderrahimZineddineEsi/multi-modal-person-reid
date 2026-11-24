@@ -284,15 +284,21 @@ model, buffalo_l faces. The first run also downloads the model weights.
 
 Each source and preset gets its own `RUN_DIR`, so runs do not mix. If `RUN_DIR` already holds a
 finished run, it is reused (set `REPROCESS = True` to process again; the new run is added to the
-same identity space, so known people keep their ids).
+same identity space, so known people keep their ids). A folder left by an interrupted run (a crash
+or a disconnected runtime) is removed and processed from scratch.
 """)
 code("""
+import shutil
+
 RUN_DIR = DATA_DIR / f"run_{SOURCE}_{PRESET}"
 COMMON = ["--preset", PRESET, "--data-dir", RUN_DIR]  # passed to every command below
 
 if has_finished_run(RUN_DIR) and not REPROCESS:
     print(f"{RUN_DIR} already has a finished run: reusing it (set REPROCESS = True to redo it).")
 else:
+    if RUN_DIR.exists() and not has_finished_run(RUN_DIR):
+        print(f"Removing {RUN_DIR}: it only holds an interrupted run.")
+        shutil.rmtree(RUN_DIR)
     sh(["reid", "process", "--cameras", CAMERAS_YAML, *COMMON,
         "--set", f"runtime.frame_stride={STRIDE}"])  # fmt: skip
 """)
