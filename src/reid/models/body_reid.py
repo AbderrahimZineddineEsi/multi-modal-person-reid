@@ -13,6 +13,7 @@ import torch
 
 from reid.config import Config
 from reid.models.device import resolve_device, use_half, weights_dir
+from reid.models.placement import Placeable
 
 log = logging.getLogger(__name__)
 
@@ -81,8 +82,10 @@ def preprocess_crops(
     return torch.from_numpy(batch).permute(0, 3, 1, 2).contiguous()
 
 
-class BodyReID:
+class BodyReID(Placeable):
     """Lazy-loaded body embedder: ``embed(crops) -> (N, D) float32, rows L2-normalized``."""
+
+    role = "body"
 
     def __init__(self, cfg: Config) -> None:
         name = cfg.body_reid.model
@@ -95,13 +98,17 @@ class BodyReID:
         self.neck_feat = cfg.body_reid.neck_feat
         self.batch = cfg.runtime.batch_size
         self.device = resolve_device(cfg.runtime.embed_device)
-        self.half = use_half(self.device, cfg.runtime.fp16)
+        self._want_half = cfg.runtime.fp16
+        self.half = use_half(self.device, self._want_half)
         self.weights_dir = weights_dir(cfg.paths.weights_dir)
         self._net: Any = None
         if cfg.body_reid.dim != self.dim:
             raise ValueError(
                 f"body_reid.dim={cfg.body_reid.dim} but {name} outputs {self.dim}-D embeddings"
             )
+
+    def _unload(self) -> None:
+        self._net = None
 
     # ------------------------------------------------------------------ loading
     def load(self) -> BodyReID:
@@ -144,11 +151,17 @@ class BodyReID:
         return backend
 
     # ------------------------------------------------------------------ inference
-    @torch.inference_mode()
     def embed(self, crops: list[np.ndarray]) -> np.ndarray:
-        """Embed BGR crops; returns ``(N, D)`` float32 with unit L2 norm (zeros if invalid)."""
+        """Embed BGR crops; returns ``(N, D)`` float32 with unit L2 norm (zeros if invalid).
+
+        On GPU out-of-memory the batch is halved once, then the model moves to CPU.
+        """
         if not crops:
             return np.zeros((0, self.dim), np.float32)
+        return self.guarded(lambda: self._embed(crops))
+
+    @torch.inference_mode()
+    def _embed(self, crops: list[np.ndarray]) -> np.ndarray:
         self.load()
         outs = []
         for s in range(0, len(crops), self.batch):

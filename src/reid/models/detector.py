@@ -9,6 +9,7 @@ import numpy as np
 
 from reid.config import Config
 from reid.models.device import resolve_device, ultralytics_weights, use_half
+from reid.models.placement import Placeable
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ def _empty(with_kps: bool) -> Detections:
     )
 
 
-class PersonDetector:
+class PersonDetector(Placeable):
     """Lazy-loaded person detector.
 
     ``detect(frame)`` takes a BGR frame and returns ``(boxes Nx4 xyxy in frame pixels,
@@ -35,6 +36,8 @@ class PersonDetector:
     from the same forward pass.
     """
 
+    role = "detector"
+
     def __init__(self, cfg: Config) -> None:
         self.name = cfg.detection.model
         self.conf = cfg.detection.conf
@@ -42,12 +45,19 @@ class PersonDetector:
         self.classes = list(cfg.detection.classes)
         self.device = resolve_device(cfg.runtime.detect_device)
         self._wdir = cfg.paths.weights_dir
-        self.half = use_half(self.device, cfg.runtime.fp16)
-        # ultralytics >= 8.4 replaced the deprecated ``half`` argument by ``quantize``
-        self._prec = {"quantize": "fp16"} if self.half else {}
+        self._want_half = cfg.runtime.fp16
+        self.half = use_half(self.device, self._want_half)
+        self._on_device_change()
         self.backend = "rfdetr" if self.name.lower().startswith("rfdetr") else "ultralytics"
         self.is_pose = self.backend == "ultralytics" and "pose" in self.name.lower()
         self._model: Any = None
+
+    def _on_device_change(self) -> None:
+        # ultralytics >= 8.4 replaced the deprecated ``half`` argument by ``quantize``
+        self._prec = {"quantize": "fp16"} if self.half else {}
+
+    def _unload(self) -> None:
+        self._model = None
 
     # ------------------------------------------------------------------ loading
     def load(self) -> PersonDetector:
@@ -91,7 +101,10 @@ class PersonDetector:
 
     # ------------------------------------------------------------------ inference
     def detect(self, frame: np.ndarray) -> Detections:
-        """Detect people in a BGR frame."""
+        """Detect people in a BGR frame (falls back to CPU if the GPU runs out of memory)."""
+        return self.guarded(lambda: self._detect(frame))
+
+    def _detect(self, frame: np.ndarray) -> Detections:
         self.load()
         if self.backend == "rfdetr":
             return self._detect_rfdetr(frame)

@@ -17,6 +17,19 @@ runtime:
   detect_device: "auto"
   # Device for pose, body ReID and face models. (default: "auto")
   embed_device: "auto"
+  # Where models run: 'auto' puts as many as fit in free VRAM on the GPU (detector first, then
+  # body ReID, pose, face) and the rest on CPU; 'gpu' forces every model that can run there onto
+  # the GPU; 'cpu' forces CPU. detect_device / embed_device other than 'auto' pin that model's
+  # device. (default: "auto")
+  device_plan: "auto"
+  # VRAM the planner may use, in GB (null = the GPU's free memory). Set it to simulate a smaller
+  # GPU or to leave room for other programs. (default: null)
+  vram_budget_gb: null
+  # Models placed on CPU use smaller inputs when the preset asks for more (detector imgsz > 640
+  # -> 640, pose_imgsz > 320 -> 320, face det_size > 480 -> 480). Always logged. (default: true)
+  cpu_downsize: true
+  # Torch threads for CPU models (0 = physical cores). (default: 0)
+  cpu_threads: 0
   # Use half precision on CUDA devices (ignored on CPU). (default: true)
   fp16: true
   # Crops per batch for pose / body ReID / face models. (default: 16)

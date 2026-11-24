@@ -74,6 +74,7 @@ class RunResult:
     vram_peak_mb: dict[str, float] = field(default_factory=dict)  # PyTorch peak per stage
     # whole-process GPU memory (CUDA context + PyTorch cache + ONNX Runtime), see gpu_memory.py
     gpu_memory: dict[str, Any] = field(default_factory=dict)
+    device_plan: dict[str, Any] = field(default_factory=dict)  # per-model device, see planner.py
     cameras: list[CameraStats] = field(default_factory=list)
     identity_report: Any = None
 
@@ -318,6 +319,7 @@ def run(
         if own_conn:
             conn.close()
     res.gpu_memory = monitor.peak.to_dict()
+    res.device_plan = models.device_plan()
     res.wall_s = time.perf_counter() - t_all
     res.frames_processed = sum(c.frames_processed for c in res.cameras)
     res.tracklets = sum(c.tracklets for c in res.cameras)

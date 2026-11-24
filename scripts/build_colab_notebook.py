@@ -1,5 +1,9 @@
 # ruff: noqa: E501  (the notebook cell texts below are content, kept as they appear in Colab)
-"""Generate notebooks/colab_demo.ipynb (outputs stripped).
+"""Generate the two Colab notebooks (outputs stripped).
+
+- ``notebooks/colab_demo.ipynb``: the LAUNCHER. Installs the package, mounts Drive and starts the
+  app on ``DATA_DIR/environments``; footage is added from the app's Process tab (upload or URL).
+- ``notebooks/colab_walkthrough.ipynb``: optional, reproduces the AI City benchmark step by step.
 
 The notebook is generated so that its structure stays reviewable in one place. Edit this script,
 then run ``python scripts/build_colab_notebook.py`` and commit both files.
@@ -19,7 +23,8 @@ COLAB_URL = (
     "https://colab.research.google.com/github/AbderrahimZineddineEsi/multi-modal-person-reid"
     "/blob/v2/notebooks/colab_demo.ipynb"
 )
-OUT = Path(__file__).resolve().parents[1] / "notebooks" / "colab_demo.ipynb"
+NB_DIR = Path(__file__).resolve().parents[1] / "notebooks"
+WALK_URL = COLAB_URL.replace("colab_demo", "colab_walkthrough")
 
 cells: list[dict] = []
 
@@ -42,9 +47,12 @@ def code(text: str, *tags: str) -> None:
 
 
 md(f"""
-# Multi-camera person Re-ID and face association: Colab demo
+# Optional: reproduce the benchmark (Colab walkthrough)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]({COLAB_URL})
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]({WALK_URL})
+
+**You do not need this notebook to use the platform**: `colab_demo.ipynb` only launches the app, and
+you add footage from its Process tab. This one re-runs the whole AI City benchmark step by step.
 
 This notebook installs the `reid` package and drives it through its command line. It contains no
 pipeline logic of its own: every step is a `reid ...` command or a call to a documented package
@@ -389,7 +397,7 @@ md("""
 not the renders, which can be regenerated) into one zip on Drive. Browsing, search, metrics and
 admin then work on your own machine without a GPU. Set `EXPORT_WITH_VIDEOS = True` in the
 settings cell to also bundle the camera videos (needed on the PC for clips and heatmaps; it can
-add gigabytes). The zip's size is printed. See `docs/local_app.md` in the repository.
+add gigabytes). The zip's size is printed. For a continuous two-way link use `reid sync` instead (see `docs/local_app.md`).
 """)
 code("""
 EXPORT_ZIP = DATA_DIR / "exports" / f"{ENV}.zip"
@@ -428,11 +436,124 @@ sh(["reid", "app", "--share", "--auth", f"reid:{PASSWORD}", "--preset", PRESET,
 )
 
 
-def main() -> None:
+walkthrough = cells
+cells = []
+
+md(f"""
+# Multi-camera person Re-ID: launch the platform
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]({COLAB_URL})
+
+This notebook only **starts the app**. It does not process or evaluate anything. Run all cells
+(**Runtime > Run all**, T4 GPU runtime), open the printed link, log in with the printed password,
+then use the **Process** tab to upload a video or paste a video URL.
+
+Your work lives on Google Drive (`MyDrive/reid_data/environments/<name>`, one folder per
+environment), so it survives the runtime and can be synced with your PC: on the PC run
+`reid sync push` before and `reid sync pull` after (see `docs/local_app.md`).
+The benchmark walkthrough is in `colab_walkthrough.ipynb`.
+""")
+md("## 1. GPU and installation")
+code("!nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv", "colab-only")
+code(
+    """
+import os
+
+REID_REF = "v2"  # branch or tag of the repository to install
+os.environ["REID_REF"] = REID_REF
+""",
+    "colab-only",
+)
+code(
+    f"""
+%%bash
+set -o pipefail
+python -c "import torch; print('preinstalled torch', torch.__version__, '| CUDA', torch.version.cuda)"
+pip install --progress-bar off "reid[models,app,eval] @ git+{REPO_URL}@${{REID_REF}}" \\
+  > /content/pip_install.log 2>&1 || {{ tail -n 40 /content/pip_install.log; exit 1; }}
+tail -n 3 /content/pip_install.log
+python -c "import torch; print('torch after install', torch.__version__)"
+""",
+    "colab-only",
+)
+md("""
+`ultralytics` pulls in `opencv-python` and `insightface` pulls in `onnxruntime`, which clash with
+`opencv-python-headless` and `onnxruntime-gpu`. The cell removes the clashing wheels and
+reinstalls the two we want (harmless if nothing clashed). If a later cell fails with an
+`ImportError` about `numpy` or `cv2`, use **Runtime > Restart session** and run again.
+""")
+code(
+    """
+%%bash
+pip uninstall -y -q opencv-python onnxruntime
+pip install -q --force-reinstall --no-deps opencv-python-headless "onnxruntime-gpu==1.32.0"
+python -c "import cv2, onnxruntime; print('opencv', cv2.__version__, '| onnxruntime', onnxruntime.__version__)"
+""",
+    "colab-only",
+)
+
+md("""
+## 2. Settings and Drive
+
+`PRESET` is the default model preset of the Process tab (`lite`, `balanced`, `accurate`, `max`).
+`ENV` is the environment opened first; the app's top bar creates, switches and deletes others.
+""")
+code(
+    """
+from reid.notebook import sh
+
+PRESET = "auto"  # auto = chosen from the GPU (accurate on a T4) | lite | balanced | accurate | max
+ENV = "default"  # environment opened at start (created if missing)
+DRIVE_DATA_DIR = "/content/drive/MyDrive/reid_data"
+LOCAL_DATA_DIR = "/content/reid_data"  # used if Drive is not mounted (lost with the runtime)
+""",
+    "settings",
+)
+code("""
+from pathlib import Path
+
+try:
+    from google.colab import drive
+
+    drive.mount("/content/drive")
+    DATA_DIR = Path(DRIVE_DATA_DIR)
+except Exception as exc:  # not on Colab, or the prompt was declined
+    DATA_DIR = Path(LOCAL_DATA_DIR)
+    print(f"WARNING: Drive not mounted ({exc!r}).")
+    print(f"Using {DATA_DIR}: on Colab everything is lost when this runtime ends.")
+WORKSPACE = DATA_DIR / "environments"
+WORKSPACE.mkdir(parents=True, exist_ok=True)
+print("workspace =", WORKSPACE)
+sh(["reid", "env", "list", "--workspace", WORKSPACE])
+""")
+
+md("""
+## 3. Launch the app
+
+`--share` opens a public `gradio.live` link, so a login is required: the cell generates a
+password and prints it (add `--read-only` to hide the delete tools). The cell keeps running while
+the app is up; stop it with the stop button. Before syncing to your PC, stop it so the database is
+not being written.
+""")
+code(
+    """
+import secrets
+
+PASSWORD = secrets.token_urlsafe(9)
+print(f"Login: user 'reid', password '{PASSWORD}'")
+sh(["reid", "app", "--share", "--auth", f"reid:{PASSWORD}", "--preset", PRESET,
+    "--workspace", WORKSPACE, "--env", ENV])  # fmt: skip
+""",
+    "colab-only",
+)
+launcher = cells
+
+
+def write(name: str, cs: list[dict]) -> None:
     nb = {
         "cells": [
             {**c, "id": f"c{i:02d}", "source": c["source"].splitlines(keepends=True)}
-            for i, c in enumerate(cells)
+            for i, c in enumerate(cs)
         ],
         "metadata": {
             "accelerator": "GPU",
@@ -443,8 +564,14 @@ def main() -> None:
         "nbformat": 4,
         "nbformat_minor": 5,
     }
-    OUT.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
-    print(f"wrote {OUT} ({len(cells)} cells)")
+    out = NB_DIR / name
+    out.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
+    print(f"wrote {out} ({len(cs)} cells)")
+
+
+def main() -> None:
+    write("colab_demo.ipynb", launcher)
+    write("colab_walkthrough.ipynb", walkthrough)
 
 
 if __name__ == "__main__":

@@ -27,9 +27,10 @@ to the CPU automatically; fp16 is also switched off on such a card. With **no GP
 model runs on the CPU (`runtime.*_device: auto` resolves to `cpu`): `reid app` starts and search
 works, only slower (a few seconds per query instead of ~0.2 s).
 
-## 2. Move an environment from Colab
+## 2. Move an environment from Colab (one zip)
 
-The notebook's section "Use this environment on your PC" writes
+This is the one-off route. For going back and forth, use the sync loop in section 5 instead.
+The walkthrough notebook's section "Use this environment on your PC" writes
 `MyDrive/reid_data/exports/<env>.zip` (set `EXPORT_WITH_VIDEOS = True` before running if you want
 the videos inside; they can add gigabytes). Download the zip from the Drive web page, then:
 
@@ -90,3 +91,74 @@ face models run on the CPU). Use Colab for long footage.
 
 Without a local video the clip commands stop with a message ("video not found ... use `reid env
 relink`") instead of a traceback.
+
+## 5. Sync between your PC and Colab
+
+`notebooks/colab_demo.ipynb` is only a **launcher**: it installs the package, mounts Drive and
+starts the app on `MyDrive/reid_data/environments`. It processes nothing by itself. To add footage
+open the **Process** tab and upload a video or paste direct video links (one per line, up to 4 GB
+each, no YouTube). Every video processed from the app is stored inside the environment
+(`<env>/uploads/`) and the database keeps the relative path `uploads/<name>`, so the environment
+still finds its videos after it moves. `notebooks/colab_walkthrough.ipynb` is the optional
+notebook that reproduces the AI City benchmark.
+
+**PC only.** `reid app --workspace data/environments`. Nothing else is needed.
+
+**Colab only.** Open the launcher, work, close. Everything is on Drive.
+
+**Switching.** An environment is a folder, `reid sync` copies it between two workspaces:
+
+```bash
+# on the PC, before going to Colab: send your environments to the Drive folder
+reid sync push --workspace data/environments --remote <TARGET>
+# open the Colab launcher (it sees the same data on Drive), work, stop the app cell
+# back on the PC: fetch what changed on Colab
+reid sync pull --workspace data/environments --remote <TARGET>
+```
+
+`<TARGET>` is one of:
+
+* a **folder**: your Google Drive folder mounted on the PC by any means (Drive for desktop, a FUSE
+  mount, a synced folder), or a USB disk, e.g. `~/GoogleDrive/reid_data/environments`;
+* an **rclone path** `name:path`, e.g. `gdrive:reid_data/environments`. rclone is used only when
+  the target looks like `name:path` *and* an `rclone` executable is already on your PATH;
+  otherwise the command stops with a message. This project never installs it.
+
+Options: `--env NAME` (repeatable) limits it to some environments, `--dry-run` shows the plan,
+`--with-renders` also copies `renders/` (skipped by default, it can be regenerated), `--force`
+and `--delete` as below.
+
+**What it decides**, per environment (a fingerprint of a consistent SQLite snapshot plus the sizes
+of the vector files; the last synced fingerprint per target is kept in `<env>/.sync_state.json` on
+the local side):
+
+| situation | result |
+| --- | --- |
+| identical | skipped |
+| missing at the destination | copied |
+| changed only at the source | copied (changed files only; the database last) |
+| changed only at the destination (the other side is ahead) | refused: sync the other way first |
+| changed on both sides since the last sync | refused, nothing is copied |
+| refused, but `--force` | the destination environment is first moved aside as `<env>.bak-<timestamp>` on the destination side, then overwritten |
+| only at the destination, with `--delete` | moved aside as `<env>.bak-<timestamp>` (never erased) |
+
+The exit code is 3 when something was refused. The database is always copied as a consistent
+snapshot (SQLite backup API); `-wal`/`-shm` files never travel, and the result is verified by
+fingerprint after copying. Identity ids continue across machines because the whole environment
+(database, vectors, crops, uploads) moves together. **Stop the app on the side you copy from**
+(on Colab: stop the launcher cell) so the database is not being written; a pull from rclone
+refuses to copy a database that still has an unmerged WAL file. A second PC has no sync state for
+the target, so its first sync of an environment that already exists on both sides is refused until
+you pick a direction with `--force` (the old copy is kept as a backup).
+
+### Setting up rclone yourself (optional)
+
+Install it from the official page <https://rclone.org/install/>, then run `rclone config` and add
+a remote of type "Google Drive" (call it `gdrive`; follow the prompts, it opens a browser to log
+in). Check with `rclone lsd gdrive:`, then use `--remote gdrive:reid_data/environments`.
+
+### Zip alternative
+
+Without any of the above: on one side `reid env export --data-dir <env> --out env.zip
+[--with-videos]`, move the file by hand, and on the other `reid env import env.zip --workspace
+<dir> [--force]` (section 2).

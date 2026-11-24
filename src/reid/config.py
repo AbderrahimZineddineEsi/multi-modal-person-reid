@@ -9,11 +9,14 @@ and verified by the test-suite.
 from __future__ import annotations
 
 import copy
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+log = logging.getLogger(__name__)
 
 
 class _Section(BaseModel):
@@ -44,6 +47,25 @@ class RuntimeCfg(_Section):
         "auto", "Device for the detector: 'auto' (cuda if available), 'cpu', 'cuda:0'."
     )
     embed_device: str = _f("auto", "Device for pose, body ReID and face models.")
+    device_plan: Literal["auto", "gpu", "cpu"] = _f(
+        "auto",
+        "Where models run: 'auto' puts as many as fit in free VRAM on the GPU (detector first, "
+        "then body ReID, pose, face) and the rest on CPU; 'gpu' forces every model that can run "
+        "there onto the GPU; 'cpu' forces CPU. detect_device / embed_device other than 'auto' "
+        "pin that model's device.",
+    )
+    vram_budget_gb: float | None = _f(
+        None,
+        "VRAM the planner may use, in GB (null = the GPU's free memory). Set it to simulate a "
+        "smaller GPU or to leave room for other programs.",
+        gt=0,
+    )
+    cpu_downsize: bool = _f(
+        True,
+        "Models placed on CPU use smaller inputs when the preset asks for more (detector imgsz "
+        "> 640 -> 640, pose_imgsz > 320 -> 320, face det_size > 480 -> 480). Always logged.",
+    )
+    cpu_threads: int = _f(0, "Torch threads for CPU models (0 = physical cores).", ge=0)
     fp16: bool = _f(True, "Use half precision on CUDA devices (ignored on CPU).")
     batch_size: int = _f(16, "Crops per batch for pose / body ReID / face models.", ge=1)
     frame_stride: int = _f(1, "Process every n-th frame (1 = all frames).", ge=1)
@@ -544,14 +566,37 @@ def load_config(
     dicts and/or dotted keys such as ``{"association.min_cos": 0.8}``). Unknown keys raise
     ``pydantic.ValidationError``.
     """
+    user: dict[str, Any] = {}
+    if path is not None:
+        user = expand_dotted(_read_yaml(path))
+    if overrides:
+        user = deep_merge(user, expand_dotted(overrides))
     data: dict[str, Any] = {}
     if preset is not None:
+        if str(preset) == "auto":
+            preset = resolve_auto_preset(user)
         data = expand_dotted(_read_yaml(preset_path(preset)))
-    if path is not None:
-        data = deep_merge(data, expand_dotted(_read_yaml(path)))
-    if overrides:
-        data = deep_merge(data, expand_dotted(overrides))
+    data = deep_merge(data, user)
     return Config.model_validate(data)
+
+
+def resolve_auto_preset(user: dict[str, Any] | None = None) -> str:
+    """Preset name for ``preset="auto"``: chosen from the hardware (see ``planner.choose_preset``).
+
+    ``user`` is the merged config file + overrides; its ``runtime.vram_budget_gb`` and
+    ``runtime.device_plan`` steer the choice. The choice is logged.
+    """
+    from reid.models.planner import choose_preset, detect_hardware
+
+    rt = (user or {}).get("runtime") or {}
+    hw = detect_hardware()
+    name, why = choose_preset(hw, rt.get("vram_budget_gb"), rt.get("device_plan", "auto"))
+    log.info("preset auto -> %s (%s; %s)", name, why, hw.describe())
+    if not logging.getLogger().handlers:  # CLI: logging is configured after the config loads
+        import sys
+
+        sys.stderr.write(f"preset auto -> {name} ({why}; {hw.describe()})\n")
+    return name
 
 
 def load_cameras(path: str | Path) -> CameraSet:

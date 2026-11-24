@@ -55,26 +55,56 @@ def _read_cameras(data_dir: Path) -> list[tuple[str, str]]:
 
 
 def find_video(video_path: str, data_dir: Path, camera_id: str | None = None) -> Path | None:
-    """Locate a camera video: stored path, relative to ``data_dir``, then ``data_dir/videos``.
+    """Locate a camera video: stored path, relative to ``data_dir``, then ``uploads/``/``videos/``.
 
-    The ``videos/`` fallbacks (by file name, then ``<camera_id>.*``) are only used when they
-    match exactly one file, so a wrong video is never picked silently.
+    A relative stored path (what the app writes for videos kept inside the environment) is tried
+    against ``data_dir`` first. The ``uploads/`` and ``videos/`` fallbacks (by file name, then
+    ``<camera_id>.*`` in ``videos/``) are only used when they match exactly one file, so a wrong
+    video is never picked silently.
     """
     p = Path(video_path).expanduser()
+    if not p.is_absolute() and (data_dir / p).is_file():
+        return data_dir / p
     if p.exists():
         return p
-    if not p.is_absolute() and (data_dir / p).exists():
-        return data_dir / p
-    vdir = data_dir / "videos"
-    if vdir.is_dir():
+    for sub in ("uploads", "videos"):
+        vdir = data_dir / sub
+        if not vdir.is_dir():
+            continue
         cand = vdir / _basename(video_path)
         if cand.is_file():
             return cand
-        if camera_id:
+        if camera_id and sub == "videos":
             hits = [h for h in vdir.glob(f"{camera_id}.*") if h.is_file()]
             if len(hits) == 1:
                 return hits[0]
     return None
+
+
+def relativize_videos(data_dir: str | Path) -> int:
+    """Store ``cameras.video_path`` relative to the environment for videos that live inside it.
+
+    Lets the environment move (Colab <-> PC, sync) without the stored path going stale.
+    Returns how many cameras were rewritten.
+    """
+    root = Path(data_dir).resolve()
+    conn = db.connect(files.db_path(root))
+    n = 0
+    try:
+        for cam in db.list_cameras(conn):
+            p = Path(cam.video_path)
+            if not p.is_absolute():
+                continue
+            try:
+                rel = p.resolve().relative_to(root).as_posix()
+            except ValueError:
+                continue
+            conn.execute("UPDATE cameras SET video_path=? WHERE id=?", (rel, cam.id))
+            n += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return n
 
 
 def _dir_size(path: Path) -> int:

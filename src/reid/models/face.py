@@ -11,6 +11,7 @@ import numpy as np
 
 from reid.config import Config
 from reid.models.device import onnx_providers, resolve_device, weights_dir
+from reid.models.placement import Placeable
 
 log = logging.getLogger(__name__)
 
@@ -54,8 +55,10 @@ def face_quality(
     return float(det_score) * size_factor(box, min_px, full_px) * frontalness(kps)
 
 
-class FaceModel:
+class FaceModel(Placeable):
     """Lazy-loaded InsightFace pack (``buffalo_l``, ``buffalo_sc``, ``antelopev2``)."""
+
+    role = "face"
 
     def __init__(self, cfg: Config) -> None:
         self.name = cfg.face.model
@@ -65,6 +68,9 @@ class FaceModel:
         self.root = str(weights_dir(cfg.paths.weights_dir) / "insightface")
         self._app: Any = None
         self.provider = ""
+
+    def _unload(self) -> None:
+        self._app = None
 
     def load(self) -> FaceModel:
         """Download (first use) and load the model pack (idempotent)."""
@@ -100,6 +106,9 @@ class FaceModel:
 
         Embeddings are L2-normalized (ArcFace ``normed_embedding``).
         """
+        return self.guarded(lambda: self._analyze(image))
+
+    def _analyze(self, image: np.ndarray) -> list[FaceResult]:
         self.load()
         out: list[FaceResult] = []
         for f in self._app.get(image):

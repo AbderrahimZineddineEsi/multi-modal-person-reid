@@ -9,6 +9,7 @@ import numpy as np
 
 from reid.config import Config
 from reid.models.device import resolve_device, ultralytics_weights, use_half
+from reid.models.placement import Placeable
 
 log = logging.getLogger(__name__)
 
@@ -49,8 +50,10 @@ def match_pose_to_box(pose_boxes: np.ndarray, target: np.ndarray, min_iou: float
     return best if iou[best] >= min_iou else -1
 
 
-class PoseEstimator:
+class PoseEstimator(Placeable):
     """Lazy-loaded Ultralytics pose model run on padded person crops."""
+
+    role = "pose"
 
     def __init__(self, cfg: Config) -> None:
         if not cfg.quality.pose_model:
@@ -61,12 +64,19 @@ class PoseEstimator:
         self.imgsz = cfg.quality.pose_imgsz
         self.pad = cfg.quality.pose_pad
         self.device = resolve_device(cfg.runtime.embed_device)
-        self.half = use_half(self.device, cfg.runtime.fp16)
-        # ultralytics >= 8.4 replaced the deprecated ``half`` argument by ``quantize``
-        self._prec = {"quantize": "fp16"} if self.half else {}
+        self._want_half = cfg.runtime.fp16
+        self.half = use_half(self.device, self._want_half)
+        self._on_device_change()
         self.batch = cfg.runtime.batch_size
         self._wdir = cfg.paths.weights_dir
         self._model: Any = None
+
+    def _on_device_change(self) -> None:
+        # ultralytics >= 8.4 replaced the deprecated ``half`` argument by ``quantize``
+        self._prec = {"quantize": "fp16"} if self.half else {}
+
+    def _unload(self) -> None:
+        self._model = None
 
     def load(self) -> PoseEstimator:
         """Load the weights (idempotent)."""
@@ -90,6 +100,9 @@ class PoseEstimator:
 
     def keypoints(self, frame: np.ndarray, boxes: np.ndarray) -> np.ndarray:
         """Keypoints (N,17,3) in frame pixels, one pose per input box (zeros if none matched)."""
+        return self.guarded(lambda: self._keypoints(frame, boxes))
+
+    def _keypoints(self, frame: np.ndarray, boxes: np.ndarray) -> np.ndarray:
         self.load()
         boxes = np.asarray(boxes, np.float32).reshape(-1, 4)
         out = np.zeros((len(boxes), 17, 3), np.float32)

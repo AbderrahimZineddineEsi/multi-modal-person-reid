@@ -418,7 +418,10 @@ def _build_config(args: argparse.Namespace) -> Config:
         overrides[key.strip()] = yaml.safe_load(value)
     if args.data_dir:
         overrides["paths.data_dir"] = args.data_dir
-    return load_config(args.config, overrides, preset=getattr(args, "preset", None))
+    preset = getattr(args, "preset", None)
+    if preset is None and getattr(args, "command", "") in ("process", "app"):
+        preset = "auto"  # [planner] pick lite/balanced/accurate from the hardware
+    return load_config(args.config, overrides, preset=preset)
 
 
 def collect_info(cfg: Config) -> dict[str, Any]:
@@ -511,10 +514,90 @@ def _env_args(p: argparse.ArgumentParser) -> None:
 cmd_env.add_arguments = _env_args  # type: ignore[attr-defined]
 
 
+def cmd_sync(args: argparse.Namespace) -> int:
+    """``reid sync push|pull --workspace DIR --remote TARGET``: keep two workspaces identical."""
+    from reid import sync as sy
+
+    try:
+        local_root = Path(args.workspace).expanduser()
+        local, remote = sy.DirTransfer(local_root), sy.make_transfer(args.remote)
+        rep = sy.sync(
+            local, remote, local_root, args.sync_cmd, envs=args.env, dry_run=args.dry_run,
+            force=args.force, delete=args.delete, with_renders=args.with_renders,
+        )  # fmt: skip
+    except (sy.SyncError, OSError, ValueError) as exc:
+        sys.stderr.write(f"reid sync {args.sync_cmd}: {exc}\n")
+        return 1
+    tag = "[dry run] " if args.dry_run else ""
+    if not rep.envs:
+        sys.stdout.write("no environment to sync\n")
+    for e in rep.envs:
+        extra = f"  {e.copied_files} files, {portable_size(e.copied_bytes)}" if e.done else ""
+        extra += f"  (old destination kept as {e.backup})" if e.backup else ""
+        sys.stdout.write(f"{tag}{e.env:<24} {e.decision.action:<10} {e.decision.reason}{extra}\n")
+    if rep.refused:
+        sys.stderr.write("some environments were refused: no data was overwritten there\n")
+        return 3
+    return 0
+
+
+def portable_size(n: float) -> str:
+    from reid.storage.portable import human_size
+
+    return human_size(n)
+
+
+def _sync_args(p: argparse.ArgumentParser) -> None:
+    sub = p.add_subparsers(dest="sync_cmd", required=True)
+    for name, text in (
+        ("push", "copy local environments to the remote folder / rclone remote"),
+        ("pull", "copy the remote's environments into the local workspace"),
+    ):
+        q = sub.add_parser(name, help=text, description=text)
+        q.add_argument("--workspace", required=True, metavar="LOCAL_DIR")
+        q.add_argument(
+            "--remote",
+            required=True,
+            metavar="TARGET",
+            help="a folder, or an rclone path like gdrive:reid_data/environments",
+        )
+        q.add_argument("--env", action="append", metavar="NAME", help="only this one (repeatable)")
+        q.add_argument("--dry-run", action="store_true", help="show what would happen")
+        q.add_argument(
+            "--force",
+            action="store_true",
+            help="overwrite a changed destination (kept as .bak-<time>)",
+        )
+        q.add_argument(
+            "--delete",
+            action="store_true",
+            help="move environments missing at the source aside (.bak-<time>)",
+        )
+        q.add_argument("--with-renders", action="store_true", help="also copy renders/")
+
+
+cmd_sync.add_arguments = _sync_args  # type: ignore[attr-defined]
+
+
+def _hardware_report(cfg: Config) -> str:  # [planner]
+    """Hardware, what ``--preset auto`` picks here, and where this config's models would run."""
+    from reid.models.planner import choose_preset, detect_hardware, plan_devices
+
+    hw = detect_hardware()
+    rt = cfg.runtime
+    name, why = choose_preset(hw, rt.vram_budget_gb, rt.device_plan)
+    plan = plan_devices(cfg, hw)
+    lines = ["\n# hardware", hw.describe(), f"preset auto -> {name} ({why})", "# device plan"]
+    lines += [f"  {x}" for x in plan.summary_lines()]
+    lines += [f"  {a}" for a in plan.adjustments]
+    return "\n".join(lines) + "\n"
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     cfg = _build_config(args)
     sys.stdout.write("# config\n")
     sys.stdout.write(yaml.safe_dump(cfg.model_dump(), sort_keys=False))
+    sys.stdout.write(_hardware_report(cfg))  # [planner]
     sys.stdout.write(f"\n# data_dir: {cfg.data_dir.resolve()}\n")
     sys.stdout.write(json.dumps(collect_info(cfg), indent=2) + "\n")
     return 0
@@ -530,6 +613,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "virtual-cams": (cmd_virtual_cams, "derive virtual cameras from one video"),
     "app": (cmd_app, "launch the Gradio app"),
     "env": (cmd_env, "list, export, import or relink environments (Colab to PC)"),
+    "sync": (cmd_sync, "sync environments with a Drive folder / rclone remote (PC <-> Colab)"),
     "info": (cmd_info, "print the effective config and data_dir statistics"),
 }
 
@@ -539,7 +623,9 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("-c", "--config", help="YAML config merged over the defaults")
     common.add_argument(
-        "--preset", help="model preset: lite|balanced|accurate|max (or a YAML path)"
+        "--preset",
+        help="model preset: auto|lite|balanced|accurate|max (or a YAML path); "
+        "`process` and `app` default to auto (chosen from the GPU)",
     )
     common.add_argument("--data-dir", help="override paths.data_dir")
     common.add_argument(
