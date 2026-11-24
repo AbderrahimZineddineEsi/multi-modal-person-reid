@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -62,7 +63,14 @@ def cmd_process(args: argparse.Namespace) -> int:
         for b in bars.values():
             b.close()
         conn.close()
+    # same file the app writes, so the Metrics tab shows timings and GPU memory of CLI runs too
+    stats_path = Path(cfg.data_dir) / "cache" / f"run_{res.run_id}.json"
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
+    stats_path.write_text(json.dumps(res.to_dict(), indent=2, default=str))
     sys.stdout.write(json.dumps(out, indent=2, default=str) + "\n")
+    from reid.models.gpu_memory import format_peak
+
+    sys.stderr.write(format_peak(res.gpu_memory) + "\n")
     return 0
 
 
@@ -76,7 +84,6 @@ cmd_process.add_arguments = _process_args  # type: ignore[attr-defined]
 
 def cmd_render(args: argparse.Namespace) -> int:
     """``reid render --camera ID|all [--gid G] [--start S --end E] [--mosaic] [--gif]``."""
-    from pathlib import Path
 
     from reid.viz import render as R
 
@@ -175,7 +182,6 @@ cmd_search.add_arguments = _search_args  # type: ignore[attr-defined]
 
 def cmd_journey(args: argparse.Namespace) -> int:
     """``reid journey --gid G [--out F] [--gif] [--no-video]``: print the journey, render a clip."""
-    from pathlib import Path
 
     from reid import analytics
 
@@ -339,7 +345,7 @@ cmd_virtual_cams.add_arguments = _vc_args  # type: ignore[attr-defined]
 
 
 def cmd_app(args: argparse.Namespace) -> int:
-    """``reid app [--share --auth user:pass] [--admin] [--port N]``: serve the Gradio UI."""
+    """``reid app [--workspace DIR --env NAME] [--share --auth user:pass] [--port N]``."""
     try:
         from reid.app import launch
     except ImportError as exc:
@@ -353,10 +359,11 @@ def cmd_app(args: argparse.Namespace) -> int:
             return 1
         auth = (user, password)
     cfg = _build_config(args)
+    workspace, env = _app_workspace(args, cfg)
     logging.basicConfig(level=cfg.runtime.log_level, format="%(levelname)s %(name)s: %(message)s")
     demo, creds = launch(
-        cfg, share=args.share, auth=auth, admin=args.admin, port=args.port, host=args.host,
-        block=False,
+        cfg, share=args.share, auth=auth, workspace=workspace, env=env,
+        read_only=args.read_only, port=args.port, host=args.host, block=False,
     )  # fmt: skip
     if creds is not None and auth is None:
         sys.stdout.write(f"login for the shared link: {creds[0]} / {creds[1]}\n")
@@ -364,10 +371,23 @@ def cmd_app(args: argparse.Namespace) -> int:
     return 0
 
 
+def _app_workspace(args: argparse.Namespace, cfg: Config) -> tuple[Path, str]:
+    """``(workspace, initial environment)`` from ``--workspace/--env`` or ``--data-dir``."""
+    if args.workspace:
+        return Path(args.workspace).expanduser(), args.env or "default"
+    data_dir = cfg.data_dir.resolve()
+    if args.data_dir:  # one data_dir: its parent is the workspace, its folder the environment
+        return data_dir.parent, args.env or data_dir.name
+    return data_dir, args.env or "default"
+
+
 def _app_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--workspace", metavar="DIR", help="folder whose subfolders are environments")
+    p.add_argument("--env", metavar="NAME", help="environment selected at start (default: default)")
     p.add_argument("--share", action="store_true", help="public link (a login is generated)")
     p.add_argument("--auth", metavar="USER:PASS", help="require this login")
-    p.add_argument("--admin", action="store_true", help="enable merge/split/reset tools")
+    p.add_argument("--read-only", action="store_true", help="hide the delete and wipe tools")
+    p.add_argument("--admin", action="store_true", help=argparse.SUPPRESS)  # old no-op: always on
     p.add_argument("--port", type=int, help="port (default: first free from 7860)")
     p.add_argument("--host", help="interface to bind (default 127.0.0.1)")
 

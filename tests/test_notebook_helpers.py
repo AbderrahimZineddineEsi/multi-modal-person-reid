@@ -12,6 +12,7 @@ def test_sh_streams_output_and_returns_zero(capsys):
     out = capsys.readouterr().out
     assert "hello" in out
     assert out.startswith("$ ")  # the command is echoed first
+    assert "[done in " in out  # and its duration printed last
 
 
 def test_sh_raises_on_failure(capsys):

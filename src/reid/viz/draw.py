@@ -327,6 +327,21 @@ def _spotlight(frame: np.ndarray, boxes: list[tuple[float, float, float, float]]
         roi[:] = (roi * (1 - m) + orig[ry0:ry1, rx0:rx1] * m + 0.5).astype(np.uint8)
 
 
+def label_font_px(H: int) -> int:
+    """Label text size (px) for a frame of height ``H``: ~2.4 % of it, within 11..56."""
+    return int(np.clip(round(H * 0.024), 11, 56))
+
+
+def line_thickness(H: int, base: float = 2.0) -> float:
+    """Box line width for height ``H``: ``base`` px at 720p and below, growing linearly above."""
+    return float(base * np.clip(H / 720.0, 1.0, 4.0))
+
+
+def box_radius(box: tuple[float, float, float, float], H: int) -> float:
+    x1, y1, x2, y2 = box
+    return min(12.0 * max(H / 720.0, 1.0), 0.18 * min(x2 - x1, y2 - y1))
+
+
 def label_of(d: Det) -> str:
     return f"ID {d.gid}" if d.gid is not None else "?"
 
@@ -341,7 +356,7 @@ def draw_dets(
     """Draw boxes, trails and label chips for ``dets`` (source coords mapped by scale/offset)."""
     hl = st.highlight_gid
     H = frame.shape[0]
-    fs = int(np.clip(round(H * 0.024), 11, 22))
+    fs = label_font_px(H)
     ox, oy = offset
 
     def tbox(d: Det) -> tuple[float, float, float, float]:
@@ -350,7 +365,7 @@ def draw_dets(
 
     if hl is not None:
         _spotlight(frame, [tbox(d) for d in dets if d.gid == hl])
-    th = st.thickness  # in output pixels
+    th = line_thickness(H, st.thickness)  # in output pixels
     for d in sorted(dets, key=lambda d: (d.gid == hl, d.tracklet_id)):
         rgb = gid_color(d.gid, st.unidentified)
         bgr = (rgb[2], rgb[1], rgb[0])
@@ -364,11 +379,17 @@ def draw_dets(
         if len(d.trail) > 1 and st.trail_len > 0:
             feet = d.trail * scale + np.array([ox, oy])
             draw_trail(frame, feet, bgr, width=tw * (1.5 if strong else 1.2))
-        draw_box(frame, box, bgr, tw, st.fill_alpha * (1.7 if strong else 1.0))
+        draw_box(
+            frame, box, bgr, tw, st.fill_alpha * (1.7 if strong else 1.0), radius=box_radius(box, H)
+        )
         chip = chip_sprite(label_of(d), rgb, int(fs * (1.15 if strong else 1.0)), d.has_face)
-        cx, cy = int(box[0]), int(box[1] - chip.h - 3)
+        gap = max(3, int(round(tw)))
+        cx, cy = int(box[0]), int(box[1] - chip.h - gap)
         if cy < 0:
-            cy = int(box[1] + tw + 3)
+            cy = int(box[1] + tw + gap)
+        # keep the label inside the frame
+        cx = int(np.clip(cx, 0, max(frame.shape[1] - chip.w, 0)))
+        cy = int(np.clip(cy, 0, max(H - chip.h, 0)))
         paste(frame, chip, cx, cy)
 
 
@@ -380,7 +401,7 @@ def fmt_time(t: float) -> str:
 def draw_hud(frame: np.ndarray, name: str, t: float, n_people: int) -> None:
     """Translucent top bar: camera name (left), clock and people count (right)."""
     H, W = frame.shape[:2]
-    fs = int(np.clip(round(H * 0.026), 11, 24))
+    fs = int(np.clip(round(H * 0.026), 11, 60))
     bh = int(fs * 2.2)
     blend_rect(frame, 0, 0, W, bh, (14, 12, 10), 0.62)
     cv2.circle(frame, (int(bh * 0.5), bh // 2), max(3, fs // 3), (60, 60, 235), -1, cv2.LINE_AA)
@@ -449,7 +470,7 @@ def draw_view(
 
 def draw_hud_no_signal(frame: np.ndarray, name: str, t: float) -> None:
     H, W = frame.shape[:2]
-    fs = int(np.clip(round(H * 0.026), 11, 24))
+    fs = int(np.clip(round(H * 0.026), 11, 60))
     bh = int(fs * 2.2)
     blend_rect(frame, 0, 0, W, bh, (40, 36, 32), 0.7)
     nm = text_sprite(name, fs, (170, 170, 175))

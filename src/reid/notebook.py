@@ -12,6 +12,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 
 
@@ -32,6 +33,7 @@ def sh(cmd: str | Sequence[object]) -> None:
     shown = cmd if shell else shlex.join(args)
     print(f"$ {shown}", flush=True)
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    t0 = time.perf_counter()
     proc = subprocess.Popen(
         args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env
     )
@@ -43,6 +45,8 @@ def sh(cmd: str | Sequence[object]) -> None:
         sys.stdout.flush()
     sys.stdout.write(decoder.decode(b"", final=True))
     code = proc.wait()
+    elapsed = time.perf_counter() - t0
+    print(f"[{'done' if code == 0 else 'failed'} in {_fmt_duration(elapsed)}]", flush=True)
     if code != 0:
         raise CommandFailed(f"exit code {code}: {shown}\nSee the output above for the cause.")
 
@@ -61,3 +65,9 @@ def has_finished_run(data_dir: str | os.PathLike[str]) -> bool:
         return any(r["status"] == "done" for r in db.list_runs(conn))
     finally:
         conn.close()
+
+
+def _fmt_duration(seconds: float) -> str:
+    """``42 s`` or ``3 min 05 s``."""
+    m, s = divmod(round(seconds), 60)
+    return f"{m} min {s:02d} s" if m else f"{s} s"

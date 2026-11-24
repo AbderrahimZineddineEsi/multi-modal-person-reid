@@ -29,6 +29,10 @@ runtime:
   end_s: null
   # Hard cap on frames read per camera (null = no cap). (default: null)
   max_frames: null
+  # Frames whose longer side exceeds this are downscaled right after decoding (0 = never
+  # resize). 1920 keeps faces usable (1080p) while cutting 4K cost ~4x; the camera's recorded
+  # size, boxes, crops and renders all use the processed resolution. (default: 1920)
+  max_side: 1920
   # Random seed for any stochastic step. (default: 0)
   seed: 0
   # Python logging level name. (default: "INFO")

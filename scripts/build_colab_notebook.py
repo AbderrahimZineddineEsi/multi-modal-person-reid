@@ -139,9 +139,11 @@ This is the only cell you need to edit. `SOURCE` picks the footage:
 | `"own"` | your videos: put them in `MyDrive/reid_data/videos/` (every video there is one camera, in name order) | no |
 | `"virtual"` | several "cameras" cut from one video, `MyDrive/reid_data/videos/store.mp4` by default | no |
 
-Only the chosen source runs, so **Run all** is safe. Results are kept per source and preset
-(`run_<source>_<preset>`): opening the notebook again later reuses a finished run instead of
-processing again, unless `REPROCESS = True`.
+Only the chosen source runs, so **Run all** is safe. Each source and preset is its own
+**environment** (`MyDrive/reid_data/environments/<source>_<preset>`) with its own cameras and
+people, so they never mix; the app lets you switch between them, create new ones and delete them.
+Opening the notebook again later reuses a finished environment instead of processing again, unless
+`REPROCESS = True`.
 """)
 code(
     """
@@ -282,15 +284,19 @@ samples, faces on face cameras), and associates the tracklets into global identi
 `balanced` preset is the default for a T4: YOLO26m-pose detector, BoT-SORT tracker, CLIP-ReID body
 model, buffalo_l faces. The first run also downloads the model weights.
 
-Each source and preset gets its own `RUN_DIR`, so runs do not mix. If `RUN_DIR` already holds a
-finished run, it is reused (set `REPROCESS = True` to process again; the new run is added to the
-same identity space, so known people keep their ids). A folder left by an interrupted run (a crash
-or a disconnected runtime) is removed and processed from scratch.
+Each source and preset gets its own environment folder `RUN_DIR`, so runs do not mix. If it
+already holds a finished run, it is reused (set `REPROCESS = True` to process again; the new run is
+added to the same environment, so known people keep their ids). A folder left by an interrupted run
+(a crash or a disconnected runtime) is removed and processed from scratch. The output ends with the
+GPU memory the run really needed (whole process: CUDA context, PyTorch and the ONNX face models)
+and every command prints how long it took.
 """)
 code("""
 import shutil
 
-RUN_DIR = DATA_DIR / f"run_{SOURCE}_{PRESET}"
+ENVIRONMENTS = DATA_DIR / "environments"  # one folder per environment; the app's workspace
+ENV = f"{SOURCE}_{PRESET}"
+RUN_DIR = ENVIRONMENTS / ENV
 COMMON = ["--preset", PRESET, "--data-dir", RUN_DIR]  # passed to every command below
 
 if has_finished_run(RUN_DIR) and not REPROCESS:
@@ -378,9 +384,11 @@ md("""
 ## 8. Launch the app
 
 The Gradio app has tabs for processing, exploring identities and journeys, searching, per-camera
-views and metrics. `--share` opens a public `gradio.live` link, so it requires a login: the cell
-generates a password and prints it. Destructive admin actions stay hidden unless you add
-`--admin`. The cell keeps running while the app is up; stop it with the stop button.
+views and metrics, plus an environment bar to switch between environments (or create one, e.g.
+to process uploaded videos separately) and an Admin tab to merge, split, rename or delete people,
+delete runs, or empty / delete an environment. `--share` opens a public `gradio.live` link, so it
+requires a login: the cell generates a password and prints it (add `--read-only` to hide the
+delete tools). The cell keeps running while the app is up; stop it with the stop button.
 """)
 code(
     """
@@ -388,7 +396,8 @@ import secrets
 
 PASSWORD = secrets.token_urlsafe(9)
 print(f"Login: user 'reid', password '{PASSWORD}'")
-sh(["reid", "app", "--share", "--auth", f"reid:{PASSWORD}", *COMMON])
+sh(["reid", "app", "--share", "--auth", f"reid:{PASSWORD}", "--preset", PRESET,
+    "--workspace", ENVIRONMENTS, "--env", ENV])  # fmt: skip
 """,
     "colab-only",
 )

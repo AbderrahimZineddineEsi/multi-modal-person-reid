@@ -42,6 +42,38 @@ log = logging.getLogger(__name__)
 __all__ = ["evaluate", "save_result", "to_markdown"]
 
 
+def scale_gt_to_cameras(gt, cams: dict, data_dir: Path):
+    """Scale GT boxes to the stored camera size (``runtime.max_side`` may have downscaled it).
+
+    GT boxes are in the coordinates of the camera's source video; its size is read with OpenCV
+    and compared with the camera size recorded in the database. Equal sizes (the usual case,
+    and every database made before ``max_side`` existed) leave the boxes untouched.
+    """
+    import cv2
+
+    from reid.viz.video_io import resolve_video
+
+    gt = gt.copy()
+    for cid, cam in cams.items():
+        m = gt["camera"] == cid
+        if not m.any():
+            continue
+        try:
+            cap = cv2.VideoCapture(str(resolve_video(cam.video_path, data_dir)))
+            vw, vh = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+        except FileNotFoundError:
+            log.warning("%s: source video not found, GT boxes are not rescaled", cid)
+            continue
+        if vw <= 0 or vh <= 0 or (vw, vh) == (cam.width, cam.height):
+            continue
+        sx, sy = cam.width / vw, cam.height / vh
+        log.info("%s: scaling GT boxes %dx%d -> %dx%d", cid, vw, vh, cam.width, cam.height)
+        for a, k in (("x1", sx), ("x2", sx), ("y1", sy), ("y2", sy)):
+            gt.loc[m, a] = gt.loc[m, a] * k
+    return gt
+
+
 def evaluate(
     data_dir: str | Path,
     gt_path: str | Path,
@@ -76,7 +108,7 @@ def evaluate(
                 f"no camera of {data_dir} ({sorted(cams)}) appears in the GT ({gt_path}); "
                 f"GT cameras: {sorted(gt['camera'].unique())}"
             )
-        gt = gt[gt["camera"].isin(cameras)]
+        gt = scale_gt_to_cameras(gt[gt["camera"].isin(cameras)], cams, data_dir)
         keep = (gt["y2"] - gt["y1"]) >= min_gt_height
         for cam in cameras:
             m = gt["camera"] == cam

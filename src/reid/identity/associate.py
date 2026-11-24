@@ -197,7 +197,7 @@ class IdentityEngine:
         a, st = self.cfg.association, self.store
         if db.get_samples(self.conn, tracklet_id=t.id):  # already processed (idempotent)
             return db.get_tracklet(self.conn, t.id).gid  # type: ignore[union-attr]
-        span = Span(t.id, t.camera_id, t.start_ts, t.end_ts, None)
+        span = Span(t.id, t.camera_id, t.start_ts, t.end_ts, None, t.run_id)
         self._register(span)
         smp = [s for s in t.samples if s.embedding is not None]
         if len(smp) < max(1, self.cfg.tracklets.min_samples):

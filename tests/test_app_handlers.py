@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from reid import app
+from reid.app import environments as envs
 from reid.app import theme, views
 from reid.app.state import AppContext
 from reid.app.tabs import admin, cameras, explore, metrics, overview, search
@@ -36,7 +37,7 @@ def ctx(tmp_path):
     add_tracklet(conn, run, "b", 2, 10, None)
     db.refresh_identity_stats(conn)
     conn.close()
-    return AppContext(cfg, admin=True)
+    return AppContext(cfg)
 
 
 class Progress:
@@ -55,8 +56,15 @@ def test_build_app_is_lazy_and_has_expected_tabs(tmp_path):
     cfg = load_config(None, {"paths.data_dir": str(tmp_path)})
     demo = app.build_app(cfg)
     assert demo.ctx.models_loaded() is False
-    assert tab_labels(demo) == ["Overview", "Process", "Explore", "Search", "Cameras", "Metrics"]
-    assert "Admin" in tab_labels(app.build_app(cfg, admin_tools=True))
+    assert tab_labels(demo) == [
+        "Overview",
+        "Process",
+        "Explore",
+        "Search",
+        "Cameras",
+        "Metrics",
+        "Admin",
+    ]
 
 
 def test_theme_and_css_ship_with_package():
@@ -80,7 +88,7 @@ def test_launch_requires_auth_when_sharing(tmp_path, monkeypatch):
     assert creds is None and seen["auth"] is None
     _, creds = app.launch(cfg, share=True, auth=("u", "p"), block=False)
     assert creds == ("u", "p")
-    assert str(tmp_path.resolve()) in seen["allowed_paths"]
+    assert str(tmp_path.parent.resolve()) in seen["allowed_paths"]  # the workspace
 
 
 def test_views_and_overview(ctx):
@@ -120,22 +128,22 @@ def test_render_cache_hits_and_invalidates(ctx):
 def test_explore_show_and_clip(ctx):
     items, gids, drop = explore.refresh_people(ctx, None)
     assert drop["value"] == 1 and set(gids) <= {1, 2}
-    profile, journey, timeline, heat, clip = explore.show(ctx, 1)
-    assert "Person 1" in profile and "cam_a" in journey and len(heat) == 2 and clip is None
+    profile, journey, timeline, clip = explore.show(ctx, 1)
+    assert "Person 1" in profile and "cam_a" in journey and clip is None
     assert "no longer exists" in str(pytest.raises(gr.Error, explore.show, ctx, 99).value)
     prog = Progress()
     path = explore.make_clip(ctx, 1, prog)
-    assert path.endswith(".mp4") and prog.calls
+    assert path.endswith(".mp4") and prog.calls and "follow_gid1_" in path
     assert explore.make_clip(ctx, 1, prog) == path  # cached
 
 
 def test_cameras_handlers(ctx):
     cam, people = cameras.choices(ctx)
     assert cam["value"] == "a" and people["choices"][0] == ("Everyone", 0)
-    maps, trans = cameras.overview(ctx, 0)
-    assert len(maps) == 2 and "rd-matrix" in trans
+    assert "rd-matrix" in cameras.handoffs(ctx)
     prog = Progress()
-    assert cameras.video(ctx, "a", 0, 1.0, prog).endswith(".mp4")
+    assert "camera_a_" in cameras.video(ctx, "a", 0, 1.0, prog)
+    assert "camera_a_gid2_" in cameras.video(ctx, "a", 2, 1.0, prog)
     assert cameras.mosaic(ctx, 1, 1.0, prog).endswith(".mp4")
     with pytest.raises(gr.Error):
         cameras.video(ctx, None, 0, 1.0, prog)
@@ -172,10 +180,10 @@ def test_admin_actions(ctx):
     with pytest.raises(gr.Error):
         admin.do_merge(ctx, 1, None)
     with pytest.raises(gr.Error):
-        admin.do_reset(ctx, "reset please")
+        admin.do_wipe(ctx, "not the name")
     assert (ctx.data_dir / "reid.db").exists()
-    msg, *_ = admin.do_reset(ctx, "RESET")
-    assert "deleted" in msg
+    msg, *_ = admin.do_wipe(ctx, ctx.env)
+    assert "emptied" in msg
     with ctx.db() as conn:
         assert db.list_identities(conn) == []
 
@@ -189,7 +197,7 @@ def test_admin_merge_and_split(tmp_path):
     for t in ts:
         eng.on_tracklet(t)
     eng.end_run(env.run_id)
-    ctx = AppContext(env.cfg, admin=True)
+    ctx = AppContext(env.cfg)
     with ctx.db() as conn:
         gids = [i.gid for i in db.list_identities(conn)]
         tl = db.get_tracklets(conn, gid=gids[0])
@@ -236,3 +244,53 @@ def test_search_handler_with_fake_models(tmp_path):
         search.run_search(ctx, None, "", "Body", False, Progress())
     with pytest.raises(gr.Error):
         search.run_search(ctx, None, "ftp://x/y.jpg", "Body", False, Progress())
+
+
+def test_read_only_hides_delete_tools(tmp_path):
+    cfg = load_config(None, {"paths.data_dir": str(tmp_path / "e")})
+    full = app.build_app(cfg)
+    ro = app.build_app(cfg, read_only=True)
+
+    def buttons(demo):
+        return {b.value for b in demo.blocks.values() if isinstance(b, gr.Button)}
+
+    assert "Delete person" in buttons(full) and "Delete person" not in buttons(ro)
+
+
+def test_environments_switch_and_refresh(tmp_path, ctx):
+    """Environments next to the fixture's data_dir; switching re-points the context."""
+    ws = ctx.workspace
+    assert ctx.env == ctx.data_dir.name and ctx.cfg.data_dir == ctx.data_dir
+    envs.create_environment(ws, "other", "second")
+    names = [e.name for e in ctx.environments()]
+    assert ctx.env in names and "other" in names
+    assert "2 cameras" in next(e for e in ctx.environments() if e.name == ctx.env).stats
+    first = ctx.env
+    ctx.select_env("other")
+    assert ctx.data_dir == ws / "other" and ctx.cfg.data_dir == ws / "other"
+    assert "Nothing processed yet" in overview.render(ctx)[0]
+    assert explore.refresh_people(ctx)[2]["value"] is None
+    ctx.select_env(first)
+    assert overview.render(ctx)[1].count("rd-person") >= 2
+    with pytest.raises(ValueError):
+        ctx.select_env("missing")
+
+
+def test_admin_delete_actions(ctx):
+    ws = ctx.workspace
+    with pytest.raises(gr.Error):
+        admin.do_delete_person(ctx, 1, False, False)  # not confirmed
+    msg, *_ = admin.do_delete_person(ctx, 1, False, True)
+    assert "Deleted person 1" in msg
+    with ctx.db() as conn:
+        assert [i.gid for i in db.list_identities(conn)] == [2]
+    msg, *_ = admin.do_delete_run(ctx, 1, True)
+    assert "Deleted run 1" in msg
+    with ctx.db() as conn:
+        assert db.list_runs(conn) == [] and db.get_tracklets(conn) == []
+    envs.create_environment(ws, "throwaway")
+    ctx.select_env("throwaway")
+    with pytest.raises(gr.Error):
+        admin.do_delete_env(ctx, "nope")
+    assert "deleted" in admin.do_delete_env(ctx, "throwaway")
+    assert ctx.env != "throwaway" and not (ws / "throwaway").exists()

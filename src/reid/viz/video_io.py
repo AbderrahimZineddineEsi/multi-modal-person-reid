@@ -29,6 +29,26 @@ def ffmpeg_exe() -> str | None:
     return exe if "libx264" in out else None
 
 
+def processed_size(w: int, h: int, max_side: int) -> tuple[int, int]:
+    """Size a ``w`` x ``h`` frame has after the ``runtime.max_side`` cap (0 = no cap).
+
+    Aspect ratio is kept and both sides are rounded to even numbers (when resized).
+    """
+    if max_side <= 0 or max(w, h) <= max_side:
+        return int(w), int(h)
+    s = max_side / max(w, h)
+    return max(2, int(round(w * s / 2)) * 2), max(2, int(round(h * s / 2)) * 2)
+
+
+def fit_frame(frame: np.ndarray, max_side: int) -> np.ndarray:
+    """Downscale ``frame`` (INTER_AREA) so its longer side is at most ``max_side`` (0 = never)."""
+    h, w = frame.shape[:2]
+    nw, nh = processed_size(w, h, max_side)
+    if (nw, nh) == (w, h):
+        return frame
+    return cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
+
+
 class VideoSink:
     """Write BGR frames to an H.264 yuv420p mp4 (``-movflags +faststart``).
 
@@ -96,10 +116,16 @@ class VideoSink:
 
 
 class FrameSource:
-    """Random-access-ish reader: sequential reads are cheap, a backward jump seeks."""
+    """Random-access-ish reader: sequential reads are cheap, a backward jump seeks.
 
-    def __init__(self, path: str | Path) -> None:
+    ``size=(w, h)`` is the size the stored coordinates refer to (the camera's recorded size, i.e.
+    the processed resolution): frames that decode at another size are resized to it, and
+    ``width``/``height`` report it.
+    """
+
+    def __init__(self, path: str | Path, size: tuple[int, int] | None = None) -> None:
         self.path = Path(path)
+        self.size = (int(size[0]), int(size[1])) if size else None
         self.cap = cv2.VideoCapture(str(path))
         if not self.cap.isOpened():
             raise FileNotFoundError(f"cannot open video {path}")
@@ -107,6 +133,8 @@ class FrameSource:
         self.n_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if self.size:
+            self.width, self.height = self.size
         self._next = 0  # index of the frame the next ``cap.read()`` returns
         self._last: tuple[int, np.ndarray] | None = None
 
@@ -126,6 +154,8 @@ class FrameSource:
         ok, frame = self.cap.read()
         if not ok:
             return None
+        if self.size and (frame.shape[1], frame.shape[0]) != self.size:
+            frame = cv2.resize(frame, self.size, interpolation=cv2.INTER_AREA)
         self._last = (idx, frame)
         self._next = idx + 1
         return frame

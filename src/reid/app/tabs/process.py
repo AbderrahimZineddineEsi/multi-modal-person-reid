@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import shutil
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import pandas as pd
 
 from reid import analytics
 from reid.app import components as C
-from reid.app import views
+from reid.app import envbar, views
 from reid.app.state import AppContext
 from reid.config import CameraSet, CameraSpec, load_cameras
 from reid.identity import IdentityEngine
@@ -57,6 +58,15 @@ def _get(cfg, dotted: str):
     for part in dotted.split("."):
         cfg = getattr(cfg, part)
     return cfg
+
+
+def target_note(ctx: AppContext) -> str:
+    """Which environment a run will write to."""
+    return (
+        f'<p class="rd-hint">Results go to environment <b>{html.escape(ctx.env)}</b>. '
+        "Cameras you process here become its cameras; switch environments at the top to keep "
+        "other footage apart.</p>"
+    )
 
 
 def camera_yamls(ctx: AppContext) -> list[str]:
@@ -129,6 +139,7 @@ def start(ctx, source, yaml_path, videos, face_names, preset, stride, max_s, sli
 def build(ctx: AppContext) -> gr.Tab:
     cfg = ctx.cfg
     with gr.Tab("Process", id="process") as tab:
+        target = gr.HTML()
         with gr.Row(equal_height=False):
             with gr.Column(scale=2):
                 source = gr.Radio(
@@ -172,6 +183,14 @@ def build(ctx: AppContext) -> gr.Tab:
         up = src == "Upload videos"
         return gr.update(visible=not up), gr.update(visible=up), gr.update(visible=up)
 
+    gr.on(
+        envbar.refresh_on(ctx, tab.select, ctx.ui["demo"].load),
+        lambda: target_note(ctx),
+        None,
+        target,
+    )
+    ctx.ui["env_version"].change(lambda: ("", "", gr.update(visible=False)), None,
+                                 [status, kpis, stages])  # fmt: skip
     source.change(switch, source, [yaml_in, videos, faces])
     videos.change(lambda f: gr.update(choices=[Path(x).name for x in f or []], visible=bool(f)),
                   videos, faces)  # fmt: skip

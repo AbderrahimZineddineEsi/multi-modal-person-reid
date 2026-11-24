@@ -1,4 +1,4 @@
-"""Cameras tab: annotated videos, the synchronized mosaic, heatmaps and camera hand-offs."""
+"""Cameras tab: annotated videos, the synchronized mosaic and camera hand-offs."""
 
 from __future__ import annotations
 
@@ -6,10 +6,9 @@ import gradio as gr
 
 from reid import analytics
 from reid.app import components as C
-from reid.app import views
+from reid.app import envbar, views
 from reid.app.state import AppContext
 from reid.storage import db
-from reid.viz.heatmap import render_heatmap
 from reid.viz.render import render_camera, render_mosaic
 
 EVERYONE = "Everyone"  # dropdown value 0 means no highlight (gids start at 1)
@@ -25,20 +24,12 @@ def choices(ctx: AppContext):
     )
 
 
-def overview(ctx: AppContext, gid: int | None):
-    gid = gid or None
-    """(heatmap gallery items, transitions html), optionally for one person."""
+def handoffs(ctx: AppContext) -> str:
+    """Camera-to-camera hand-off table (everyone: it does not depend on the highlight)."""
     with ctx.db() as conn:
         names = {c.id: c.name for c in db.list_cameras(conn)}
-        maps = []
-        for cid, name in names.items():
-            path = ctx.cached(
-                conn, "heat", {"cam": cid, "gid": gid}, ".jpg",
-                lambda p, cid=cid: render_heatmap(conn, ctx.cfg, cid, p, gid),
-            )  # fmt: skip
-            maps.append((str(path), name))
         cams, mat = analytics.transitions(conn)
-        return maps, C.transitions_html([names.get(c, c) for c in cams], mat)
+        return C.transitions_html([names.get(c, c) for c in cams], mat)
 
 
 def _progress_cb(progress):
@@ -67,6 +58,7 @@ def video(ctx: AppContext, camera: str | None, gid: int | None, secs: float, pro
                     highlight_gid=gid,
                     progress=_progress_cb(progress),
                 ),
+                tag=f"{camera}_gid{gid}" if gid else camera,
             )  # fmt: skip
         )
 
@@ -91,6 +83,7 @@ def mosaic(ctx: AppContext, gid: int | None, secs: float, progress):
                     end_s=end,
                     progress=_progress_cb(progress),
                 ),
+                tag=f"gid{gid}" if gid else "all",
             )  # fmt: skip
         )
 
@@ -108,10 +101,6 @@ def build(ctx: AppContext) -> gr.Tab:
             with gr.Column():
                 mos_btn = gr.Button("Render mosaic of all cameras", variant="primary")
                 mos_video = gr.Video(show_label=False)
-        gr.Markdown("### Heatmaps")
-        heat = gr.Gallery(
-            show_label=False, columns=2, height=360, object_fit="contain", buttons=["fullscreen"]
-        )
         gr.Markdown("### Hand-offs between cameras")
         trans = gr.HTML()
 
@@ -121,8 +110,14 @@ def build(ctx: AppContext) -> gr.Tab:
     def mos_click(gid, n, progress=gr.Progress()):  # noqa: B008
         return mosaic(ctx, gid, n, progress)
 
-    gr.on([tab.select, ctx.ui["demo"].load], lambda: choices(ctx), None, [camera, person])
-    gr.on([tab.select, person.change], lambda g: overview(ctx, g), person, [heat, trans])
+    gr.on(
+        envbar.refresh_on(ctx, tab.select, ctx.ui["demo"].load),
+        lambda: choices(ctx),
+        None,
+        [camera, person],
+    )
+    gr.on(envbar.refresh_on(ctx, tab.select), lambda: handoffs(ctx), None, trans)
+    ctx.ui["env_version"].change(lambda: (None, None), None, [cam_video, mos_video])
     cam_btn.click(cam_click, [camera, person, secs], cam_video, concurrency_limit=1,
                   concurrency_id="render")  # fmt: skip
     mos_btn.click(

@@ -110,3 +110,7 @@ button[role="tab"][aria-selected="true"] { color: var(--rd-accent) !important; }
 .rd-plain { border: none !important; background: transparent !important; box-shadow: none !important; }
 .rd-hint, .rd-hint p { color: var(--rd-muted) !important; font-size: 13px; }
 footer { opacity: .5; }
+
+/* environment bar: one compact line above the tabs */
+.rd-envbar { align-items: center !important; gap: 10px !important; margin-bottom: 4px; }
+.rd-envmsg { flex: 0 0 auto !important; min-width: 0 !important; }

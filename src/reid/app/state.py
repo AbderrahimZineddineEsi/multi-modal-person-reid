@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
@@ -11,17 +12,28 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from reid.app import environments as envs
 from reid.config import Config, load_config
 from reid.models.registry import Models
 from reid.storage import db, files
 from reid.storage.vectors import VectorStore
 
 # Config sections that decide which weights are loaded; a change means rebuilding the models.
-_MODEL_SECTIONS = ("runtime", "detection", "quality", "body_reid", "face", "paths")
+_MODEL_SECTIONS = ("runtime", "detection", "quality", "body_reid", "face")
+
+
+def _slug(text: str) -> str:
+    """File-name safe version of ``text`` (letters, digits, ``-``, ``_``)."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_")[:40]
 
 
 class AppContext:
     """Everything the tabs share. Holds no models until a handler asks for them.
+
+    The app works on one *environment* at a time: ``<workspace>/<env>`` is the data_dir every
+    tab reads and writes. The selected environment lives here, not in per-session state, so all
+    browser sessions share it. That is deliberate for a single-user demo: switching in one tab
+    re-points the whole app, and the other tabs pick it up on their next refresh.
 
     SQLite connections are opened per call (``with ctx.db() as conn``), so Gradio's worker
     threads never share one. Renders are cached under ``data_dir/renders/app`` keyed by their
@@ -29,15 +41,43 @@ class AppContext:
     invalidates them.
     """
 
-    def __init__(self, cfg: Config, admin: bool = False) -> None:
-        self.cfg = cfg
-        self.admin = admin
-        self.data_dir = cfg.data_dir.resolve()
+    def __init__(
+        self,
+        cfg: Config,
+        read_only: bool = False,
+        workspace: Path | None = None,
+        env: str | None = None,
+    ) -> None:
+        self.read_only = read_only
         self.ui: dict[str, Any] = {}  # components that tabs register for each other
         self._models: Models | None = None
         self._models_key = ""
         self._lock = threading.Lock()
+        data_dir = cfg.data_dir.resolve()
+        if workspace is None:  # a plain data_dir: its parent is the workspace
+            workspace, env = data_dir.parent, data_dir.name
+        self.workspace = Path(workspace).expanduser().resolve()
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.cfg = cfg
+        self.env = ""
+        self.data_dir = data_dir
+        self.select_env(env or envs.DEFAULT_ENV, create=True)
+
+    # ------------------------------------------------------------------ environments
+
+    def select_env(self, name: str, create: bool = False) -> None:
+        """Point the app at ``<workspace>/<name>`` (created when ``create``)."""
+        path = envs.ensure_environment(self.workspace, name) if create else self.workspace / name
+        if not create and not envs.is_env(path):
+            raise ValueError(f"Environment '{name}' does not exist.")
+        self.env = name
+        self.data_dir = path.resolve()
+        self.cfg = self.cfg.model_copy(deep=True)
+        self.cfg.paths.data_dir = str(self.data_dir)
         files.ensure_dirs(self.data_dir)
+
+    def environments(self) -> list[envs.EnvInfo]:
+        return envs.list_environments(self.workspace)
 
     # ------------------------------------------------------------------ database
 
@@ -69,7 +109,8 @@ class AppContext:
 
         cfg = cfg or self.cfg
         dump = cfg.model_dump()
-        key = json.dumps({k: dump[k] for k in _MODEL_SECTIONS}, sort_keys=True)
+        parts = {k: dump[k] for k in _MODEL_SECTIONS} | {"weights": dump["paths"]["weights_dir"]}
+        key = json.dumps(parts, sort_keys=True)  # data_dir is not part of it: no reload per env
         with self._lock:
             if self._models is None or key != self._models_key:
                 self._models = build_models(cfg)
@@ -95,11 +136,17 @@ class AppContext:
         params: dict[str, Any],
         suffix: str,
         make: Callable[[Path], object],
+        tag: str = "",
     ) -> Path:
-        """Path of ``make``'s output for these parameters, calling ``make(path)`` on a miss."""
+        """Path of ``make``'s output for these parameters, calling ``make(path)`` on a miss.
+
+        The file is ``<kind>_<tag>_<hash>``: ``tag`` is for people (``gid5``, ``cam_01_gid3``),
+        the hash keys the cache.
+        """
         key = json.dumps([kind, params, self.fingerprint(conn)], sort_keys=True, default=str)
-        digest = hashlib.sha1(key.encode()).hexdigest()[:12]
-        out = files.render_path(self.data_dir, f"app/{kind}_{digest}{suffix}")
+        digest = hashlib.sha1(key.encode()).hexdigest()[:8]
+        name = "_".join(x for x in (kind, _slug(tag), digest) if x)
+        out = files.render_path(self.data_dir, f"app/{name}{suffix}")
         if not out.exists():
             out.parent.mkdir(parents=True, exist_ok=True)
             tmp = out.with_name(f"tmp_{out.name}")

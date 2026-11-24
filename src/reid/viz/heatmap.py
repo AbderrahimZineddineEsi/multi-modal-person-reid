@@ -61,7 +61,7 @@ def camera_background(
     img = _read_image(cache)
     if img is not None:
         return img
-    with FrameSource(resolve_video(cam.video_path, cfg.data_dir)) as src:
+    with FrameSource(resolve_video(cam.video_path, cfg.data_dir), (cam.width, cam.height)) as src:
         n = max(src.n_frames, 1)
         frames = []
         for i in np.linspace(0, n - 1, num=min(n_frames, n)).astype(int):

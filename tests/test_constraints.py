@@ -91,3 +91,21 @@ def test_face_ambiguous_helper():
     assert not C.face_ambiguous(1, {1: 0.7, 2: 0.4}, {}, cfg)
     assert C.face_ambiguous(1, {1: 0.7, 2: 0.68}, {}, cfg)
     assert not C.face_ambiguous(1, {1: 0.7, 2: 0.68}, {(1, 2): 0.9}, cfg)
+
+
+def test_time_rules_apply_only_within_one_run():
+    """Re-processing the same videos (same cameras, same timestamps) in a new run must not
+    forbid the people of the first run (regression: every person got a second identity)."""
+    from reid.config import AssociationCfg
+    from reid.identity.constraints import Span, violates, violation_matrix
+
+    cfg = AssociationCfg()
+    run1 = Span(1, "cam_a", 0.0, 30.0, gid=1, run_id=1)
+    run2 = Span(2, "cam_a", 0.0, 30.0, gid=None, run_id=2)
+    same_run = Span(3, "cam_a", 10.0, 20.0, gid=None, run_id=1)
+    assert not violates(run1, run2, cfg)
+    assert violates(run1, same_run, cfg)
+    m = violation_matrix([run1, run2, same_run], cfg)
+    assert not m[0, 1] and m[0, 2] and not m[1, 2]
+    legacy = Span(4, "cam_a", 0.0, 30.0)  # no run id: old behaviour (time rules apply)
+    assert violates(run1, legacy, cfg)

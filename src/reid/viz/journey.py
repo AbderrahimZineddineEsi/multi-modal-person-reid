@@ -194,7 +194,10 @@ def follow_person(
     cams = {c.id: c for c in db.list_cameras(conn)}
     rgb = gid_color(gid)
     st = Style.from_cfg(cfg, highlight_gid=gid)
-    srcs = {cid: FrameSource(resolve_video(c.video_path, cfg.data_dir)) for cid, c in cams.items()}
+    srcs = {
+        cid: FrameSource(resolve_video(c.video_path, cfg.data_dir), (c.width, c.height))
+        for cid, c in cams.items()
+    }
     try:
         tracks = {cid: CameraTracks(conn, cid, 0, 2**31 - 1, st.trail_len) for cid in cams}
         aspect = srcs[segs[0].camera_id].height / srcs[segs[0].camera_id].width

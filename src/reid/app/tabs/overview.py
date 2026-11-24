@@ -6,7 +6,7 @@ import gradio as gr
 
 from reid import analytics
 from reid.app import components as C
-from reid.app import views
+from reid.app import envbar, views
 from reid.app.state import AppContext
 
 
@@ -44,5 +44,10 @@ def build(ctx: AppContext) -> gr.Tab:
             with gr.Column(scale=1, min_width=260):
                 gr.Markdown("### Cameras")
                 side = gr.HTML()
-    gr.on([tab.select, ctx.ui["demo"].load], lambda: render(ctx), None, [kpis, people, side])
+    gr.on(
+        envbar.refresh_on(ctx, tab.select, ctx.ui["demo"].load),
+        lambda: render(ctx),
+        None,
+        [kpis, people, side],
+    )
     return tab

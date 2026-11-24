@@ -8,7 +8,7 @@ import gradio as gr
 
 from reid import analytics
 from reid.app import components as C
-from reid.app import views
+from reid.app import envbar, views
 from reid.app.state import AppContext
 from reid.app.tabs.process import stage_table
 from reid.storage import db
@@ -18,6 +18,12 @@ def run_choices(ctx: AppContext):
     with ctx.db() as conn:
         runs = [(f"Run {r['id']} ({r['status']})", int(r["id"])) for r in db.list_runs(conn)]
     return gr.update(choices=runs, value=runs[-1][1] if runs else None)
+
+
+def reload(ctx: AppContext):
+    """Run dropdown plus the newest run's view (run ids repeat across environments)."""
+    update = run_choices(ctx)
+    return update, *run_view(ctx, update["value"])
 
 
 def run_view(ctx: AppContext, run_id: int | None):
@@ -48,10 +54,27 @@ def run_view(ctx: AppContext, run_id: int | None):
 
 def memory_html(ctx: AppContext, stats: dict | None) -> str:
     items = []
+    gm = (stats or {}).get("gpu_memory") or {}
+    if gm.get("required_mb"):
+        how = "process peak" if gm.get("source") == "process" else "device increase"
+        items.append(
+            C.metric_tile(
+                "GPU memory needed",
+                f"{gm['required_mb'] / 1024:.2f} GB",
+                f"{how}: CUDA context + PyTorch + ONNX Runtime"
+                + (f", on {gm['gpu_name']}" if gm.get("gpu_name") else ""),
+            )
+        )
+        if gm.get("torch_reserved_mb"):
+            items.append(
+                C.metric_tile(
+                    "PyTorch reserved", f"{gm['torch_reserved_mb']:.0f} MB", "allocator peak"
+                )
+            )
     peaks = (stats or {}).get("vram_peak_mb") or {}
     for stage, mb in peaks.items():
         if stage != "total_peak":
-            items.append(C.metric_tile(f"{stage} stage", f"{mb:.0f} MB", "peak GPU memory"))
+            items.append(C.metric_tile(f"{stage} stage", f"{mb:.0f} MB", "PyTorch tensors at peak"))
     live = views.vram_now()
     if live:
         items.append(
@@ -133,7 +156,8 @@ def build(ctx: AppContext) -> gr.Tab:
         with gr.Accordion("Full evaluation result", open=False):
             ev_json = gr.JSON(show_label=False)
 
-    gr.on([tab.select, ctx.ui["demo"].load], lambda: run_choices(ctx), None, run)
+    load = envbar.refresh_on(ctx, tab.select, ctx.ui["demo"].load)
+    gr.on(load, lambda: reload(ctx), None, [run, kpis, stages, mem, frag])
     run.change(lambda r: run_view(ctx, r), run, [kpis, stages, mem, frag])
-    gr.on([tab.select, ctx.ui["demo"].load], lambda: eval_results(ctx), None, [ev_tiles, ev_json])
+    gr.on(load, lambda: eval_results(ctx), None, [ev_tiles, ev_json])
     return tab

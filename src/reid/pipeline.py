@@ -18,11 +18,13 @@ import cv2
 import numpy as np
 
 from reid.config import CameraSet, CameraSpec, Config
+from reid.models.gpu_memory import GpuMemoryMonitor, format_peak
 from reid.models.registry import Models, build_models
 from reid.storage import db, files
 from reid.tracking.tracker import Tracker, appearance_active
 from reid.tracking.tracklets import TrackletBuilder
 from reid.types import CameraInfo, Tracklet
+from reid.viz.video_io import fit_frame, processed_size
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +71,9 @@ class RunResult:
     model_load_s: float = 0.0
     fps: float = 0.0  # processed frames per wall second (excluding model loading)
     ms_per_frame: dict[str, float] = field(default_factory=dict)  # detect/track/pose/reid/face/read
-    vram_peak_mb: dict[str, float] = field(default_factory=dict)
+    vram_peak_mb: dict[str, float] = field(default_factory=dict)  # PyTorch peak per stage
+    # whole-process GPU memory (CUDA context + PyTorch cache + ONNX Runtime), see gpu_memory.py
+    gpu_memory: dict[str, Any] = field(default_factory=dict)
     cameras: list[CameraStats] = field(default_factory=list)
     identity_report: Any = None
 
@@ -83,11 +87,17 @@ class RunResult:
 
 
 def read_frames(
-    cap: cv2.VideoCapture, start_f: int, end_f: int | None, stride: int, max_frames: int | None
+    cap: cv2.VideoCapture,
+    start_f: int,
+    end_f: int | None,
+    stride: int,
+    max_frames: int | None,
+    max_side: int = 0,
 ) -> Iterator[tuple[int, np.ndarray]]:
     """Yield ``(frame_index, BGR frame)`` for every ``stride``-th frame in ``[start_f, end_f)``.
 
     Skipped frames are only ``grab``-ed (no decode to image). ``max_frames`` caps frames read.
+    Frames are downscaled to ``max_side`` (longer side, 0 = never) before they are yielded.
     """
     if start_f:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
@@ -99,7 +109,7 @@ def read_frames(
         if (idx - start_f) % stride == 0:
             ok, frame = cap.retrieve()
             if ok:
-                yield idx, frame
+                yield idx, fit_frame(frame, max_side)
         idx += 1
 
 
@@ -169,7 +179,11 @@ def _process_camera(
         if fps <= 0:
             log.warning("%s: no fps in file or config, assuming 30", spec.id)
             fps = 30.0
-        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        w, h = processed_size(
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            rt.max_side,
+        )
         n_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or None
         start_f = int(round(rt.start_s * fps))
         end_f = int(round(rt.end_s * fps)) if rt.end_s is not None else n_total
@@ -203,7 +217,9 @@ def _process_camera(
                     f.image = None
 
         for frame_idx, frame in _timed(
-            read_frames(cap, start_f, end_f, rt.frame_stride, rt.max_frames), ms, "read"
+            read_frames(cap, start_f, end_f, rt.frame_stride, rt.max_frames, rt.max_side),
+            ms,
+            "read",
         ):
             t0 = time.perf_counter()
             with models.stage("detect"):
@@ -276,6 +292,7 @@ def run(
     run_id = db.create_run(conn, cfg.to_json())
     models = models or build_models(cfg)
     res = RunResult(run_id=run_id)
+    monitor = GpuMemoryMonitor(_cuda_index(cfg.runtime.detect_device)).__enter__()
     t_load = time.perf_counter()
     models.warm()
     res.model_load_s = time.perf_counter() - t_load
@@ -297,8 +314,10 @@ def run(
         db.set_run_status(conn, run_id, "failed")
         raise
     finally:
+        monitor.__exit__(None, None, None)
         if own_conn:
             conn.close()
+    res.gpu_memory = monitor.peak.to_dict()
     res.wall_s = time.perf_counter() - t_all
     res.frames_processed = sum(c.frames_processed for c in res.cameras)
     res.tracklets = sum(c.tracklets for c in res.cameras)
@@ -310,4 +329,11 @@ def run(
     res.fps = res.frames_processed / res.wall_s if res.wall_s > 0 else 0.0
     res.vram_peak_mb = models.vram_report()
     log.info("run %d done: %s", run_id, res.ms_per_frame)
+    log.info("run %d: %s", run_id, format_peak(monitor.peak))
     return res
+
+
+def _cuda_index(device: str) -> int:
+    """NVML index of a ``cuda:N`` device string (0 for ``cuda``/``auto``/anything else)."""
+    _, _, idx = str(device).partition("cuda:")
+    return int(idx) if idx.isdigit() else 0

@@ -3,7 +3,9 @@
 Not in Casao et al. 2023 (single camera, frame level). Multi-camera extension, motivated by
 v1 review B1/B3/B4 and docs/dev/pipeline_decisions.md row 8 and 7:
 
-* **Cannot-link (hard)**
+* **Cannot-link (hard)**. Time rules only compare tracklets of the **same run**: each run is
+  one recording session with its own clock (``start_ts`` is usually 0 for every run), so
+  re-processing the same videos must not make the new tracklets "overlap" the old ones.
   - same camera and the two tracklets overlap in time by more than ``overlap_tolerance_s``
     (one person cannot be in two places of the same view);
   - face conflict: both sides have a face descriptor and their cosine is below
@@ -36,6 +38,7 @@ class Span:
     start_ts: float
     end_ts: float
     gid: int | None = None
+    run_id: int | None = None  # time rules apply only within one run (one shared clock)
 
 
 def time_gap(a: Span, b: Span) -> float:
@@ -45,6 +48,8 @@ def time_gap(a: Span, b: Span) -> float:
 
 def violates(a: Span, b: Span, cfg: AssociationCfg, cameras: CameraSet | None = None) -> bool:
     """True if the two tracklets can never be the same person (time/topology rules)."""
+    if a.run_id is not None and b.run_id is not None and a.run_id != b.run_id:
+        return False  # different recordings: their timestamps are not on one clock
     gap = time_gap(a, b)
     if a.camera_id == b.camera_id:
         return -gap > cfg.overlap_tolerance_s
@@ -107,6 +112,9 @@ def violation_matrix(
                 mt[ci[a], ci[b]] = v if v else 0.0
         need = mt[cam[:, None], cam[None, :]]
         out |= (~same) & (need > 0) & (gap < need)
+    runs = np.array([-1 if s.run_id is None else s.run_id for s in spans])
+    known = runs >= 0
+    out &= ~(known[:, None] & known[None, :] & (runs[:, None] != runs[None, :]))
     np.fill_diagonal(out, False)
     return out
 

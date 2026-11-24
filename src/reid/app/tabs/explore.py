@@ -1,4 +1,4 @@
-"""Explore tab: pick a person, see their profile, journey, timeline, heatmaps and follow clip."""
+"""Explore tab: pick a person, see their profile, journey, timeline and follow clip."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ from reid.app import components as C
 from reid.app import views
 from reid.app.state import AppContext
 from reid.app.theme import BG, MUTED, PANEL, TEXT
-from reid.storage import db
-from reid.viz.heatmap import render_heatmap
 from reid.viz.journey import follow_person
 from reid.viz.timeline import HAS_PLOTLY, plot_timeline, timeline_figure
 
@@ -39,25 +37,11 @@ def timeline_plot(conn, gid: int):
     return fig
 
 
-def heatmaps(ctx: AppContext, conn, gid: int) -> list[tuple[str, str]]:
-    """One heatmap per camera that saw ``gid`` (cached)."""
-    cams = {c.id: c.name for c in db.list_cameras(conn)}
-    seen = sorted({t.camera_id for t in db.get_tracklets(conn, gid=gid)})
-    out = []
-    for cid in seen:
-        path = ctx.cached(
-            conn, "heat", {"cam": cid, "gid": gid}, ".jpg",
-            lambda p, cid=cid: render_heatmap(conn, ctx.cfg, cid, p, gid),
-        )  # fmt: skip
-        out.append((str(path), cams.get(cid, cid)))
-    return out
-
-
 def show(ctx: AppContext, gid: int | None):
-    """Everything about one person: (profile, journey, timeline, heatmaps, clip reset)."""
+    """Everything about one person: (profile, journey, timeline, clip reset)."""
     if gid is None:
         hint = C.empty_state("Pick a person", "Choose someone from the list on the left.")
-        return hint, "", None, [], None
+        return hint, "", None, None
     gid = int(gid)
     with ctx.db() as conn:
         card = next((c for c in views.people_cards(ctx, conn) if c.gid == gid), None)
@@ -66,7 +50,7 @@ def show(ctx: AppContext, gid: int | None):
         steps = views.journey_steps(ctx, conn, gid)
         return (
             C.identity_card(card, big=True), C.journey_html(gid, steps), timeline_plot(conn, gid),
-            heatmaps(ctx, conn, gid), None,
+            None,
         )  # fmt: skip
 
 
@@ -80,6 +64,7 @@ def make_clip(ctx: AppContext, gid: int | None, progress):
             lambda p: follow_person(
                 conn, ctx.cfg, int(gid), p, lambda done, total: progress(done / max(total, 1))
             ),
+            tag=f"gid{int(gid)}",
         )  # fmt: skip
     return str(path)
 
@@ -99,14 +84,6 @@ def build(ctx: AppContext) -> gr.Tab:
                 journey = gr.HTML()
                 gr.Markdown("### Presence over time")
                 timeline = gr.Plot(show_label=False)
-                gr.Markdown("### Where they walked")
-                heat = gr.Gallery(
-                    show_label=False,
-                    columns=2,
-                    height=300,
-                    object_fit="contain",
-                    buttons=["fullscreen"],
-                )
                 gr.Markdown("### Follow clip")
                 clip_btn = gr.Button("Generate follow clip", variant="primary")
                 clip = gr.Video(show_label=False, autoplay=False)
@@ -118,10 +95,17 @@ def build(ctx: AppContext) -> gr.Tab:
     def clip_click(gid, progress=gr.Progress()):  # noqa: B008 (Gradio's progress idiom)
         return make_clip(ctx, gid, progress)
 
+    def reload():
+        """Picker and the first person's view (ids repeat across environments, so show it)."""
+        items, ids, update = refresh_people(ctx)
+        return items, ids, update, *show(ctx, update["value"])
+
+    shown = [profile, journey, timeline, clip]
     gr.on(
         [tab.select, ctx.ui["demo"].load], lambda: refresh_people(ctx), None, [picker, gids, person]
     )
+    ctx.ui["env_version"].change(reload, None, [picker, gids, person, *shown])
     picker.select(pick, gids, person)
-    person.change(lambda g: show(ctx, g), person, [profile, journey, timeline, heat, clip])
+    person.change(lambda g: show(ctx, g), person, shown)
     clip_btn.click(clip_click, person, clip, concurrency_limit=1, concurrency_id="render")
     return tab

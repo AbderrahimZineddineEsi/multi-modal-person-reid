@@ -91,7 +91,7 @@ class IdentityStore:
     def spans(self) -> list[Span]:
         """A span for every tracklet in the database."""
         return [
-            Span(t.id, t.camera_id, t.start_ts, t.end_ts, t.gid)  # type: ignore[arg-type]
+            Span(t.id, t.camera_id, t.start_ts, t.end_ts, t.gid, t.run_id)  # type: ignore[arg-type]
             for t in db.get_tracklets(self.conn)
         ]
 

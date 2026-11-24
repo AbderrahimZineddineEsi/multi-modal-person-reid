@@ -74,6 +74,8 @@ class PersonDetector:
     def _load_rfdetr(self) -> None:
         import rfdetr
 
+        _logs_to_stderr("rf-detr")  # it logs to stdout, which corrupts `reid process` JSON
+
         sizes = {
             "small": "RFDETRSmall",
             "medium": "RFDETRMedium",
@@ -135,3 +137,15 @@ class PersonDetector:
             np.asarray(det.confidence, np.float32)[keep],
             None,
         )
+
+
+def _logs_to_stderr(name: str) -> None:
+    """Point the stdout handlers of logger ``name`` at stderr (stdout carries our JSON)."""
+    import logging
+    import sys
+
+    for h in logging.getLogger(name).handlers:
+        if getattr(h, "_stream_name", None) == "stdout":  # rfdetr's redirect-aware handler
+            h._stream_name = "stderr"  # type: ignore[attr-defined]
+        elif isinstance(h, logging.StreamHandler) and h.stream is sys.stdout:
+            h.setStream(sys.stderr)

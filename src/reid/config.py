@@ -50,6 +50,13 @@ class RuntimeCfg(_Section):
     start_s: float = _f(0.0, "Start processing at this many seconds into each video.", ge=0)
     end_s: float | None = _f(None, "Stop at this many seconds (null = end of video).")
     max_frames: int | None = _f(None, "Hard cap on frames read per camera (null = no cap).")
+    max_side: int = _f(
+        1920,
+        "Frames whose longer side exceeds this are downscaled right after decoding (0 = never "
+        "resize). 1920 keeps faces usable (1080p) while cutting 4K cost ~4x; the camera's "
+        "recorded size, boxes, crops and renders all use the processed resolution.",
+        ge=0,
+    )
     seed: int = _f(0, "Random seed for any stochastic step.")
     log_level: str = _f("INFO", "Python logging level name.")
 

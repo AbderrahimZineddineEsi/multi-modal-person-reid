@@ -117,8 +117,16 @@ def sample_queries(
     return pd.concat(out, ignore_index=True) if out else gt.iloc[:0].assign(held_out=True)
 
 
-def crop_queries(queries: pd.DataFrame, videos: dict[str, str]) -> list[np.ndarray | None]:
-    """Tight crops of the query boxes, read sequentially per camera video (None if unreadable)."""
+def crop_queries(
+    queries: pd.DataFrame,
+    videos: dict[str, str],
+    sizes: dict[str, tuple[int, int]] | None = None,
+) -> list[np.ndarray | None]:
+    """Tight crops of the query boxes, read sequentially per camera video (None if unreadable).
+
+    ``sizes`` (camera -> stored ``(w, h)``) are the coordinates the boxes refer to: frames that
+    decode at another size (``runtime.max_side`` downscaling) are resized to it first.
+    """
     crops: list[np.ndarray | None] = [None] * len(queries)
     pos = {i: p for p, i in enumerate(queries.index)}
     for cam, g in queries.groupby("camera"):
@@ -132,6 +140,8 @@ def crop_queries(queries: pd.DataFrame, videos: dict[str, str]) -> list[np.ndarr
                 ok, frame = cap.retrieve() if cur == f else (False, None)
                 if not ok:
                     frame = None
+                elif sizes and cam in sizes and (frame.shape[1], frame.shape[0]) != sizes[cam]:
+                    frame = cv2.resize(frame, tuple(sizes[cam]), interpolation=cv2.INTER_AREA)
             if frame is None:
                 continue
             x1, y1 = max(0, int(row["x1"])), max(0, int(row["y1"]))
@@ -169,7 +179,7 @@ def run_retrieval(
 
     sampled = load_sampled_points(conn, run_id)
     q = sample_queries(gt, sizes, sampled, per_id=per_id, min_height=min_height, guard=guard)
-    crops = crop_queries(q, videos)
+    crops = crop_queries(q, videos, sizes)
     keep = [i for i, c in enumerate(crops) if c is not None]
     q, crops = q.iloc[keep].reset_index(drop=True), [crops[i] for i in keep]
     gallery_gts = set(majority.values())

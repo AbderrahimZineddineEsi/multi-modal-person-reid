@@ -49,6 +49,18 @@ def test_cli_app_arguments(capsys):
     args = cli.build_parser().parse_args(
         ["app", "--share", "--auth", "reid:pw", "--preset", "balanced", "--data-dir", "x"]
     )
-    assert args.share and args.auth == "reid:pw" and not args.admin and args.func is cli.cmd_app
+    assert args.share and args.auth == "reid:pw" and not args.read_only and args.func is cli.cmd_app
     assert cli.main(["app", "--auth", "nopassword"]) == 1
     assert "user:password" in capsys.readouterr().err
+
+
+def test_cli_app_workspace_and_env(tmp_path):
+    """--workspace/--env, and --data-dir X meaning workspace X.parent with environment X.name."""
+    p = cli.build_parser()
+    args = p.parse_args(["app", "--workspace", str(tmp_path), "--env", "own", "--read-only"])
+    assert args.read_only and cli._app_workspace(args, cli._build_config(args)) == (tmp_path, "own")
+    args = p.parse_args(["app", "--data-dir", str(tmp_path / "run1")])
+    ws, env = cli._app_workspace(args, cli._build_config(args))
+    assert ws == tmp_path.resolve() and env == "run1"
+    args = p.parse_args(["app", "--set", f"paths.data_dir={tmp_path}", "--admin"])
+    assert cli._app_workspace(args, cli._build_config(args)) == (tmp_path.resolve(), "default")
