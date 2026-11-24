@@ -1,0 +1,16 @@
+# balanced (default): Colab T4. Single YOLO26m-pose model, BoT-SORT (motion-only), CLIP-ReID.
+runtime:
+  batch_size: 16
+detection:
+  model: yolo26m-pose.pt
+  imgsz: 640
+quality:
+  pose_model: null
+tracking:
+  tracker: botsort
+body_reid:
+  model: clipreid_msmt17
+  dim: 1280
+face:
+  model: buffalo_l
+  det_size: 640

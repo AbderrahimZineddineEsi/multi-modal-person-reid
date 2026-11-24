@@ -28,3 +28,10 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Runtime data and caches
+data/
+runs/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/

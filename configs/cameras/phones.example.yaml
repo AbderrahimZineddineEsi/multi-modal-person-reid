@@ -1,0 +1,20 @@
+# Example camera set. Copy, edit and pass to `reid process` as the camera set.
+# Relative paths are relative to the working directory.
+cameras:
+  - id: cam_entrance
+    name: Entrance
+    video_path: videos/entrance.mp4
+    start_ts: 0.0          # epoch seconds of frame 0; 0 on every camera = "synchronized"
+    is_face_cam: true      # run face detection/embedding here
+    # fps: 30              # override the fps read from the file
+    # homography: [[1,0,0],[0,1,0],[0,0,1]]   # image -> floor plan
+    # background: assets/camera_backgrounds/bg_cam_03.jpg
+  - id: cam_aisle
+    name: Aisle
+    video_path: videos/aisle.mp4
+    start_ts: 0.0
+topology:                  # optional: minimum plausible transit time between cameras
+  - src: cam_entrance
+    dst: cam_aisle
+    min_transit_s: 3.0
+    symmetric: true

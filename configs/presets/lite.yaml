@@ -1,0 +1,17 @@
+# lite: local GTX 1050 (3 GB) / CPU fallback. Single pose-detector model, ByteTrack, OSNet.
+runtime:
+  batch_size: 8
+detection:
+  model: yolo26n-pose.pt
+  imgsz: 640
+quality:
+  pose_model: null          # single-model mode: keypoints come from the detector
+  min_det_conf: 0.5         # YOLO26n confidences sit below the RT-DETR-L ones v1 tuned 0.75 on
+tracking:
+  tracker: bytetrack
+body_reid:
+  model: osnet_x1_0_msmt17
+  dim: 512
+face:
+  model: buffalo_sc
+  det_size: 480

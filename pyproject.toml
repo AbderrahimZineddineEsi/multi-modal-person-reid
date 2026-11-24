@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "reid"
+version = "0.2.0"
+description = "Multi-camera person Re-ID and face association pipeline"
+readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "tqdm>=4.65",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+# Versions below are the ones installed and verified on 2026-11-24 (Python 3.12, Linux).
+# Pascal GPUs (GTX 10xx, sm_61) need the cu126 wheels of torch/torchvision, e.g.
+#   uv pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cu126
+# onnxruntime-gpu 1.32 has no Pascal kernels: the face models then run on CPU automatically.
+models = [
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+    "ultralytics==8.4.218",   # YOLO26 / YOLO26-pose / RT-DETR
+    "boxmot==26.0.0",         # trackers (motion-only) and OSNet weights
+    "rfdetr==1.12.1",         # RF-DETR S/M/L (accurate / max presets)
+    "insightface==2.1",
+    "onnxruntime-gpu==1.32.0",
+    "gdown==5.2.2",           # downloads the CLIP-ReID checkpoint from Google Drive
+]
+app = [
+    "gradio==6.32.0",   # 6.x: theme and css are passed to launch(), not to Blocks()
+    "plotly>=5.20",     # interactive presence timeline in the Explore tab
+]
+# motmetrics 1.4.0 calls np.asfarray (removed in NumPy 2); reid.eval has its own IoU matrix and
+# only uses motmetrics' accumulator and metrics, which work on NumPy 2 / pandas 2.
+eval = ["motmetrics>=1.4", "pandas>=1.5", "huggingface_hub>=0.24"]
+faiss = ["faiss-cpu>=1.7"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+reid = "reid.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reid"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"configs/presets" = "reid/presets"
+
+# ultralytics requires "opencv-python" and insightface requires "onnxruntime"; they clash with
+# our opencv-python-headless / onnxruntime-gpu (same module names). With pip, run
+#   pip uninstall -y opencv-python onnxruntime && pip install --force-reinstall opencv-python-headless onnxruntime-gpu
+[tool.uv]
+override-dependencies = [
+    "opencv-python; sys_platform == 'never'",
+    "onnxruntime; sys_platform == 'never'",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["team_materials", "docs", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q -m \"not models\""
+markers = ["models: needs model weights / GPU (deselected by default)"]

@@ -1,0 +1,279 @@
+# reid default configuration.
+# Generated from src/reid/config.py (python -m reid.config_yaml > configs/default.yaml).
+# Every key is optional in your own file: missing keys fall back to these defaults.
+# Each parameter below is documented as: meaning (default).
+
+# --- paths: Where data lives.
+paths:
+  # Root of all persisted state (reid.db, vectors/, crops/, faces/, renders/). (default: "data")
+  data_dir: "data"
+  # Cache for downloaded weights (empty = ~/.cache/reid/weights; on Colab use Drive). (default:
+  # "")
+  weights_dir: ""
+
+# --- runtime: Devices and clip selection.
+runtime:
+  # Device for the detector: 'auto' (cuda if available), 'cpu', 'cuda:0'. (default: "auto")
+  detect_device: "auto"
+  # Device for pose, body ReID and face models. (default: "auto")
+  embed_device: "auto"
+  # Use half precision on CUDA devices (ignored on CPU). (default: true)
+  fp16: true
+  # Crops per batch for pose / body ReID / face models. (default: 16)
+  batch_size: 16
+  # Process every n-th frame (1 = all frames). (default: 1)
+  frame_stride: 1
+  # Start processing at this many seconds into each video. (default: 0.0)
+  start_s: 0.0
+  # Stop at this many seconds (null = end of video). (default: null)
+  end_s: null
+  # Hard cap on frames read per camera (null = no cap). (default: null)
+  max_frames: null
+  # Random seed for any stochastic step. (default: 0)
+  seed: 0
+  # Python logging level name. (default: "INFO")
+  log_level: "INFO"
+
+# --- detection: Person detector.
+detection:
+  # Detector: an Ultralytics weights name ('yolo26m-pose.pt', 'rtdetr-l.pt', ...) or 'rfdetr-
+  # small|medium|large'. A '-pose' model also yields keypoints (single-model mode). (default:
+  # "yolo26m-pose.pt")
+  model: "yolo26m-pose.pt"
+  # Minimum detection confidence (v1 used the Ultralytics default). (default: 0.25)
+  conf: 0.25
+  # Detector input size (longest side). Crops are cut from the full frame. (default: 640)
+  imgsz: 640
+  # COCO class ids to keep (0 = person). (default: [0])
+  classes: [0]
+
+# --- quality: Quality gate that decides which boxes become embedding samples.
+quality:
+  # Separate pose weights run on padded crops (e.g. 'yolo26s-pose.pt'). null = use the keypoints
+  # of the detector (it must then be a '-pose' model). (default: null)
+  pose_model: null
+  # Input size of the separate pose model on crops. (default: 320)
+  pose_imgsz: 320
+  # Relative padding of crops fed to the separate pose model. (default: 0.15)
+  pose_pad: 0.15
+  # Per-keypoint confidence for a keypoint to count as visible. (default: 0.3)
+  kp_conf: 0.3
+  # Minimum visible fraction of the 17 keypoints. (default: 0.5)
+  min_visible_ratio: 0.5
+  # Minimum detection/tracker confidence for a box to be sampled (v1 REID_CONF). (default: 0.75)
+  min_det_conf: 0.75
+  # Sample a track at most every n processed frames. (default: 5)
+  sample_every: 5
+  # Minimum box height in pixels to be sampled. (default: 96)
+  min_box_h: 96
+  # Boxes closer than this to the frame border count as truncated. (default: 2)
+  edge_margin_px: 2
+  # Skip boxes truncated by the frame edge. (default: true)
+  reject_truncated: true
+  # Minimum quality (visible_ratio x det_conf) of an accepted sample. (default: 0.35)
+  min_quality: 0.35
+
+# --- tracking: Per-camera multi-object tracker (motion-only by default).
+tracking:
+  # boxmot tracker (see tracking/tracker.py); always run motion-only here. (default: "botsort")
+  tracker: "botsort"
+  # Confidence above which detections are first-pass matched. (default: 0.5)
+  track_high_thresh: 0.5
+  # Lowest confidence kept for second-pass matching. (default: 0.1)
+  track_low_thresh: 0.1
+  # Confidence needed to start a new track. (default: 0.6)
+  new_track_thresh: 0.6
+  # Frames a lost track is kept alive before removal. (default: 30)
+  track_buffer: 30
+  # BoT-SORT camera-motion compensation (needs frames; ignored by others). (default: true)
+  use_cmc: true
+  # IoU-distance threshold for association. (default: 0.8)
+  match_thresh: 0.8
+
+# --- body_reid: Body ReID embedder.
+body_reid:
+  # Body ReID: 'clipreid_msmt17' (CLIP-ReID ViT-B/16, 1280-D) or 'osnet_x1_0_msmt17' (512-D). v1
+  # used CLIP-ReID trained on Market-1501. (default: "clipreid_msmt17")
+  model: "clipreid_msmt17"
+  # Override the weights download URL / Google Drive id (e.g. a GitHub Release mirror).
+  # (default: null)
+  weights_url: null
+  # CLIP-ReID feature: 'after' = BN-neck outputs (v1 / boxmot), 'before' = raw cls tokens (the
+  # official repo's test default). (default: "after")
+  neck_feat: "after"
+  # Crop resize height (v1: plain stretch to 256x128). (default: 256)
+  input_h: 256
+  # Crop resize width. (default: 128)
+  input_w: 128
+  # Embedding dimension (v1: 768 + 512 concatenated). Must match the model. (default: 1280)
+  dim: 1280
+
+# --- tracklets: Tracklet building and finalization.
+tracklets:
+  # Finalize a tracklet after its track is missing this long (seconds). (default: 2.0)
+  track_lost_s: 2.0
+  # Tracklets with fewer accepted samples get no identity (gid NULL) but keep their points.
+  # (default: 2)
+  min_samples: 2
+  # Keep the best-quality samples up to this number. (default: 16)
+  max_samples_per_tracklet: 16
+  # Drop tracks shorter than this many boxes entirely (flicker). (default: 5)
+  min_points: 5
+  # Relative padding added around body crops saved to disk. (default: 0.0)
+  crop_pad: 0.0
+  # Write the best body crop of each tracklet to data_dir/crops. (default: true)
+  save_crops: true
+
+# --- face: Face detection and quality (face cameras only).
+face:
+  # Master switch for all face logic. (default: true)
+  enabled: true
+  # InsightFace model pack: 'buffalo_l', 'buffalo_sc' or 'antelopev2' (SCRFD + ArcFace).
+  # (default: "buffalo_l")
+  model: "buffalo_l"
+  # Face detector input size. (default: 640)
+  det_size: 640
+  # Minimum face detection score (v1 FACE_CONF_THRESHOLD, strict >). (default: 0.7)
+  det_conf: 0.7
+  # Face centre must lie in the top fraction of the body box (v1 0.4). (default: 0.4)
+  head_region: 0.4
+  # Best faces kept per tracklet. (default: 5)
+  max_faces: 5
+  # Minimum face box side in pixels (below this the size factor is 0). (default: 32)
+  min_face_px: 32
+  # Face side at which the size quality factor saturates at 1. (default: 112)
+  full_size_px: 112
+  # Write the best face crop of each tracklet to data_dir/faces. (default: true)
+  save_faces: true
+  # Relative margin around the saved face crop. (default: 0.15)
+  crop_margin: 0.15
+
+# --- association: Online tracklet -> identity assignment (Casao et al. 2023 self-adaptive gallery).
+association:
+  # Absolute cosine floor for a body match (v1 MIN_COS_SIM; not in Casao). (default: 0.78)
+  min_cos: 0.78
+  # Top-2 softmax ratio required for a body match (Casao tau = 2). (default: 2.0)
+  tau: 2.0
+  # Softmax inverse temperature 1/v on cosine scores (Casao v = 0.1; v1 used 15). (default:
+  # 10.0)
+  softmax_temp: 10.0
+  # Fraction of a tracklet's samples whose own best gid must agree with the tracklet decision (0
+  # disables). Our addition; Casao decides per frame. (default: 0.5)
+  sample_vote: 0.5
+  # Face cosine at/above which a tracklet matches a known gid (v1 0.55). (default: 0.55)
+  face_match: 0.55
+  # Required lead of best face gid over the second-best. (default: 0.05)
+  face_margin: 0.05
+  # Face cosine below which two tracklets can never share a gid. (default: 0.3)
+  face_conflict: 0.3
+  # Faces of a tracklet that must individually support a face match. (default: 2)
+  face_min_obs: 2
+  # Gallery size m per identity (Casao m = 50). (default: 50)
+  gallery_budget: 50
+  # Drop-rule weight gamma: entropy vs redundancy (Casao 0.6; v1 0.5). (default: 0.6)
+  gallery_gamma: 0.6
+  # Reference D(C_i) of the diversity gate: 'min' = smallest pairwise distance (Casao Eq. 6),
+  # 'mean' = mean nearest-neighbour distance (stricter). (default: "min")
+  diversity_ref: "min"
+  # DBSCAN eps (cosine distance) on pooled tracklet descriptors (Casao: unspecified). (default:
+  # 0.15)
+  udm_eps: 0.15
+  # Samples a pooled cluster needs before it is evaluated (Casao l = 20). (default: 20)
+  udm_min_samples: 20
+  # Cluster mints a new identity if its min distance to the gallery exceeds this (Casao alpha =
+  # 0.1). (default: 0.1)
+  udm_new_dist: 0.1
+  # Nearest centroids / candidate classes per sample (Casao k = 3). (default: 3)
+  udm_k: 3
+  # Run the UDM every n pooled tracklets (and at end_camera). (default: 20)
+  udm_every: 20
+  # Below this many identities an unmatched tracklet mints directly (Casao Q = 20). (default:
+  # 20)
+  bootstrap_q: 20
+  # Samples an unmatched tracklet needs to mint during bootstrap. (default: 8)
+  bootstrap_min_samples: 8
+  # During bootstrap, join an existing gid above this cosine (Casao epsilon = 0.9). (default:
+  # 0.9)
+  bootstrap_join_cos: 0.9
+  # Prototypes per identity (v1 K=3; Al Muzaddid & Beksi N=3). (default: 3)
+  proto_k: 3
+  # Prototype method: 'alpha_fps' (in-house quality-weighted FPS, normalized terms) or 'gcp' (Al
+  # Muzaddid & Beksi 2025 interpolated FPS). (default: "alpha_fps")
+  proto_method: "alpha_fps"
+  # alpha_fps: weight of the quality term vs distance term (v1 0.5). (default: 0.5)
+  proto_alpha: 0.5
+  # gcp: interpolation x <- x + alpha (p - x) (paper: value not stated). (default: 0.5)
+  gcp_alpha: 0.5
+  # Same-camera temporal overlap tolerated before a cannot-link (s). (default: 0.0)
+  overlap_tolerance_s: 0.0
+  # Enforce camera-topology min_transit_s cannot-links when defined. (default: true)
+  use_topology: true
+
+# --- consolidation: Offline constrained agglomerative clustering over identity centroids.
+consolidation:
+  # Run consolidation at the end of a run. (default: true)
+  enabled: true
+  # Agglomerative linkage. (default: "average")
+  linkage: "average"
+  # Stop merging above this 1 - cos distance (0.25 = cos 0.75). (default: 0.25)
+  merge_threshold: 0.25
+  # Face matches between identities are must-links, face conflicts cannot-links. (default: true)
+  use_faces: true
+  # Cluster together with identities already in data_dir. (default: true)
+  include_existing: true
+  # Identities with fewer gallery samples are not clustered. (default: 2)
+  min_samples: 2
+
+# --- search: Query-by-image search.
+search:
+  # Minimum top-1 cosine for a body match (v1 th_emb). (default: 0.75)
+  body_min_cos: 0.75
+  # Top-2 softmax ratio for the ambiguity check (v1 function default). (default: 1.5)
+  tau: 1.5
+  # Softmax inverse temperature on cosine scores (Casao v = 0.1; v1 used 15). (default: 10.0)
+  softmax_temp: 10.0
+  # Neighbours fetched before per-identity aggregation. (default: 10)
+  top_k: 10
+  # Minimum face cosine for a face match (v1). (default: 0.55)
+  face_min_cos: 0.55
+  # Required lead of the best face gid over the second-best. (default: 0.05)
+  face_margin: 0.05
+  # Face neighbours fetched before aggregation (v1). (default: 5)
+  face_top_k: 5
+  # Gray padding (x max(h, w)) around pre-cropped face queries (v1). (default: 1.0)
+  face_pad: 1.0
+
+# --- render: Video rendering and heatmaps.
+render:
+  # Output scale factor relative to the source video. (default: 1.0)
+  scale: 1.0
+  # Foot-point trail length in frames (0 = no trail). (default: 30)
+  trail_len: 30
+  # Box line thickness in pixels. (default: 2)
+  box_thickness: 2
+  # Draw the top bar (camera name, timestamp, people count). (default: true)
+  show_hud: true
+  # H.264 constant rate factor (lower = better quality). (default: 23)
+  crf: 23
+  # Output fps (null = source fps). (default: null)
+  out_fps: null
+  # BGR colour of unidentified tracks. (default: [128, 128, 128])
+  unidentified_color: [128, 128, 128]
+  # Gaussian sigma of foot-point heatmaps (v1 sigma_small). (default: 4.0)
+  heat_sigma: 4.0
+  # Heatmap downscale factor for accumulation (v1 heat_scale). (default: 0.1)
+  heat_scale: 0.1
+  # Heatmap overlay opacity (v1 alpha). (default: 0.6)
+  heat_alpha: 0.6
+  # Opacity of the colour fill inside person boxes. (default: 0.16)
+  fill_alpha: 0.16
+  # Opacity of non-highlighted people when a person is highlighted. (default: 0.4)
+  dim_alpha: 0.4
+  # Width in pixels of one camera tile in mosaics. (default: 640)
+  mosaic_tile_width: 640
+  # Width in pixels of follow-person clips. (default: 1280)
+  journey_width: 1280
+  # Frame rate of exported GIFs. (default: 12.0)
+  gif_fps: 12.0
+  # Width in pixels of exported GIFs. (default: 640)
+  gif_width: 640

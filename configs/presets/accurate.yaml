@@ -1,0 +1,17 @@
+# accurate: Colab T4. RF-DETR-M detector + YOLO26s-pose on padded crops.
+runtime:
+  batch_size: 16
+detection:
+  model: rfdetr-medium
+  imgsz: 640                # RF-DETR resizes to its native resolution; unused for this backend
+quality:
+  pose_model: yolo26s-pose.pt
+  pose_imgsz: 320
+tracking:
+  tracker: botsort
+body_reid:
+  model: clipreid_msmt17
+  dim: 1280
+face:
+  model: buffalo_l
+  det_size: 640

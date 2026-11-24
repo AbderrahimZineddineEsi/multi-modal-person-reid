@@ -1,0 +1,19 @@
+# max: Colab T4. RF-DETR-L + YOLO26m-pose on crops + OccluBoost (motion-only).
+# PLAN lists PersonViT-B for body ReID "if license OK"; its weights are not wired in (P2), so
+# this preset uses CLIP-ReID MSMT17. Face: antelopev2 (AdaFace R100 is optional / not wired).
+runtime:
+  batch_size: 16
+detection:
+  model: rfdetr-large
+  imgsz: 704
+quality:
+  pose_model: yolo26m-pose.pt
+  pose_imgsz: 384
+tracking:
+  tracker: occluboost
+body_reid:
+  model: clipreid_msmt17
+  dim: 1280
+face:
+  model: antelopev2
+  det_size: 640

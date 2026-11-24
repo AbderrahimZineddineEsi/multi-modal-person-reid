@@ -1,0 +1,22 @@
+# AI City 2024 MTMC, scene 075, first 2.0 min, 720p, cameras synchronized, synthetic people (no face cameras). CC-BY-4.0, NVIDIA, https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces
+cameras:
+- id: cam_0700
+  name: cam_0700
+  video_path: data/datasets/aicity24_075/cam_0700.mp4
+  start_ts: 0.0
+  is_face_cam: false
+- id: cam_0701
+  name: cam_0701
+  video_path: data/datasets/aicity24_075/cam_0701.mp4
+  start_ts: 0.0
+  is_face_cam: false
+- id: cam_0708
+  name: cam_0708
+  video_path: data/datasets/aicity24_075/cam_0708.mp4
+  start_ts: 0.0
+  is_face_cam: false
+- id: cam_0711
+  name: cam_0711
+  video_path: data/datasets/aicity24_075/cam_0711.mp4
+  start_ts: 0.0
+  is_face_cam: false
