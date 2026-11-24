@@ -235,8 +235,13 @@ def follow_person(
         n_total = sum(max(1, int((s.t1 - s.t0) * fps)) for s in segs)
         done = 0
         bgr = gid_color_bgr(gid)
+        # The side thumbnails are small previews: refreshing them at ~10 fps instead of every
+        # output frame looks the same and removes most of the decoding/drawing of other cameras.
+        tile_every = max(1, round(fps / 10))
+        tiles: dict[str, np.ndarray] = {}
         with VideoSink(out_path, W, H, fps, cfg.render.crf) as sink:
             for si, seg in enumerate(segs):
+                tiles.clear()  # a new segment changes which cameras are thumbnails
                 cam = cams[seg.camera_id]
                 n = max(1, int((seg.t1 - seg.t0) * fps))
                 if si == 0:
@@ -260,14 +265,17 @@ def follow_person(
                     for oc in cams.values():
                         if oc.id == cam.id:
                             continue
-                        tile, seen = tile_at(
-                            oc, srcs[oc.id], tracks[oc.id], t, (tile_w, tile_h), st, hud=False
-                        )
-                        _label(tile, oc.name)
-                        if seen:
-                            cv2.rectangle(
-                                tile, (0, 0), (tile_w - 1, tile_h - 1), bgr, 3, cv2.LINE_AA
+                        tile = tiles.get(oc.id)
+                        if tile is None or k % tile_every == 0:  # thumbnails at ~10 fps
+                            tile, seen = tile_at(
+                                oc, srcs[oc.id], tracks[oc.id], t, (tile_w, tile_h), st, hud=False
                             )
+                            _label(tile, oc.name)
+                            if seen:
+                                cv2.rectangle(
+                                    tile, (0, 0), (tile_w - 1, tile_h - 1), bgr, 3, cv2.LINE_AA
+                                )
+                            tiles[oc.id] = tile
                         canvas[y : y + tile_h, sx : sx + tile_w] = tile
                         y += tile_h + m
                     canvas[main_h + m - card_h : main_h + m, sx : sx + strip_w] = card

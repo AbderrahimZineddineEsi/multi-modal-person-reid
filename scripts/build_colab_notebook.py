@@ -327,11 +327,11 @@ else:
 md("""
 ## 7. Render, follow one person, search
 
-`reid render` draws boxes and global ids on every camera and tiles them into one mosaic video.
+`reid render --mosaic` draws boxes and global ids on every camera, tiled into one mosaic video\n(`--camera all` would also write one video per camera).
 `reid journey` cuts a clip that follows one identity from camera to camera; here it is the identity
 seen in the most tracklets.
 """)
-code("""sh(["reid", "render", "--camera", "all", "--mosaic", "--scale", 0.5, *COMMON])""")
+code("""sh(["reid", "render", "--mosaic", "--scale", 0.5, *COMMON])""")
 code("""
 from reid.storage import db, files
 

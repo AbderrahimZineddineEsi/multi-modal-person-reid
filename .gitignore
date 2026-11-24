@@ -35,3 +35,6 @@ runs/
 .ruff_cache/
 .pytest_cache/
 *.egg-info/
+
+# executed Colab notebooks (outputs contain the app password and share link)
+notebooks/*_finished*.ipynb

@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 from reid.config import Config
 from reid.storage import db
 from reid.viz.colors import RGB, gid_color, text_on
+from reid.viz.video_io import display_resize
 
 _SS = 3  # chip supersampling factor
 BG_BGR = (22, 18, 15)  # dark canvas (RGB 15,18,22)
@@ -427,9 +428,7 @@ def letterbox(
     if (nw, nh) == (fw, fh):
         small = frame.copy()
     else:
-        small = cv2.resize(
-            frame, (nw, nh), interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_LINEAR
-        )
+        small = display_resize(frame, (nw, nh))
     if (nw, nh) == (w, h):
         return small, s, (0, 0)
     canvas = np.empty((h, w, 3), np.uint8)
