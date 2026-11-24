@@ -133,8 +133,9 @@ class BodyReID:
         res = net.load_state_dict(ClipReidNet.filter_state_dict(raw), strict=False)
         if res.missing_keys or res.unexpected_keys:
             raise RuntimeError(f"CLIP-ReID weights mismatch: {res}")
-        net.eval().to(self.device)
-        return net.half() if self.half else net
+        # fp16 runs through torch.autocast in embed(): the weights stay fp32, so the fp32
+        # LayerNorms of the CLIP encoder keep fp32 weights (net.half() broke them on a T4).
+        return net.eval().to(self.device)
 
     def _load_osnet(self, path: Path) -> Any:
         from boxmot.reid.core.runtime import ReID
@@ -153,8 +154,11 @@ class BodyReID:
         for s in range(0, len(crops), self.batch):
             x = preprocess_crops(crops[s : s + self.batch], self.h, self.w, self.mean, self.std)
             x = x.to(self.device)
-            x = x.half() if self.half else x
-            f = self._net(x) if self.backend == "clipreid" else self._net.forward(x)
+            if self.backend == "clipreid":
+                with torch.autocast("cuda", dtype=torch.float16, enabled=self.half):
+                    f = self._net(x)
+            else:  # boxmot converts OSNet's weights itself when half=True
+                f = self._net.forward(x.half() if self.half else x)
             if isinstance(f, (list, tuple)):
                 f = f[0]
             f = f.float()

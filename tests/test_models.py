@@ -78,3 +78,25 @@ def test_lite_detector_and_osnet_run():
     boxes, confs, kps = m.detector.detect(np.zeros((480, 640, 3), np.uint8))
     assert boxes.shape[1] == 4 and kps is not None
     assert m.body.embed([np.zeros((100, 50, 3), np.uint8)]).shape == (1, 512)
+
+
+@pytest.mark.models
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+@pytest.mark.parametrize("preset", ["balanced", "lite"])  # CLIP-ReID, OSNet
+def test_body_reid_fp16_matches_fp32(preset, monkeypatch):
+    """fp16 is only enabled on GPUs with fast half (T4 and newer), so force it here.
+
+    Regression: CLIP-ReID converted with ``net.half()`` crashed in its fp32 LayerNorm
+    ("expected scalar type Float but found Half") on Colab's T4.
+    """
+    import reid.models.body_reid as body_reid
+
+    cfg = load_config(None, preset=preset)
+    crops = [np.random.default_rng(i).integers(0, 255, (256, 96, 3), np.uint8) for i in range(4)]
+    ref = body_reid.BodyReID(cfg).embed(crops)
+    monkeypatch.setattr(body_reid, "use_half", lambda device, want: device.startswith("cuda"))
+    half = body_reid.BodyReID(cfg)
+    assert half.half
+    emb = half.embed(crops)
+    assert emb.dtype == np.float32 and emb.shape == ref.shape
+    assert np.all((emb * ref).sum(1) > 0.99)  # same embeddings up to fp16 rounding
