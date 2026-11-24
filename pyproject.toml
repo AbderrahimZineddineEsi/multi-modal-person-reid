@@ -27,8 +27,10 @@ dependencies = [
 #   uv pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cu126
 # onnxruntime-gpu 1.32 has no Pascal kernels: the face models then run on CPU automatically.
 models = [
-    "torch==2.14.1",
-    "torchvision==0.29.1",
+    # torch is not pinned: Colab/Kaggle ship their own CUDA build and re-installing it (~3 GB)
+    # can kill the runtime. Verified locally with torch 2.14.1 / torchvision 0.29.1.
+    "torch>=2.2,<3",
+    "torchvision>=0.17,<1",
     "ultralytics==8.4.218",   # YOLO26 / YOLO26-pose / RT-DETR
     "boxmot==26.0.0",         # trackers (motion-only) and OSNet weights
     "rfdetr==1.12.1",         # RF-DETR S/M/L (accurate / max presets)
