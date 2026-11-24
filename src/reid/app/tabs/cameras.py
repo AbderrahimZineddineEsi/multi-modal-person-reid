@@ -6,7 +6,7 @@ import gradio as gr
 
 from reid import analytics
 from reid.app import components as C
-from reid.app import envbar, views
+from reid.app import envbar, videos, views
 from reid.app.state import AppContext
 from reid.storage import db
 from reid.viz.render import render_camera, render_mosaic
@@ -97,18 +97,20 @@ def build(ctx: AppContext) -> gr.Tab:
         with gr.Row(equal_height=False):
             with gr.Column():
                 cam_btn = gr.Button("Render camera video", variant="primary")
+                cam_note = gr.HTML(elem_classes="rd-note")
                 cam_video = gr.Video(show_label=False)
             with gr.Column():
                 mos_btn = gr.Button("Render mosaic of all cameras", variant="primary")
+                mos_note = gr.HTML(elem_classes="rd-note")
                 mos_video = gr.Video(show_label=False)
         gr.Markdown("### Hand-offs between cameras")
         trans = gr.HTML()
 
     def cam_click(cam, gid, n, progress=gr.Progress()):  # noqa: B008 (Gradio's progress idiom)
-        return video(ctx, cam, gid, n, progress)
+        return videos.render_or_note(lambda: video(ctx, cam, gid, n, progress))
 
     def mos_click(gid, n, progress=gr.Progress()):  # noqa: B008
-        return mosaic(ctx, gid, n, progress)
+        return videos.render_or_note(lambda: mosaic(ctx, gid, n, progress))
 
     gr.on(
         envbar.refresh_on(ctx, tab.select, ctx.ui["demo"].load),
@@ -117,10 +119,24 @@ def build(ctx: AppContext) -> gr.Tab:
         [camera, person],
     )
     gr.on(envbar.refresh_on(ctx, tab.select), lambda: handoffs(ctx), None, trans)
-    ctx.ui["env_version"].change(lambda: (None, None), None, [cam_video, mos_video])
-    cam_btn.click(cam_click, [camera, person, secs], cam_video, concurrency_limit=1,
-                  concurrency_id="render")  # fmt: skip
-    mos_btn.click(
-        mos_click, [person, secs], mos_video, concurrency_limit=1, concurrency_id="render"
+
+    def notes() -> tuple[str, str]:
+        note = videos.availability_note(ctx)
+        return note, note
+
+    gr.on(
+        envbar.refresh_on(ctx, tab.select),
+        notes,
+        None,
+        [cam_note, mos_note],
     )
+    ctx.ui["env_version"].change(lambda: (None, None), None, [cam_video, mos_video])
+    cam_btn.click(
+        cam_click, [camera, person, secs], [cam_video, cam_note],
+        concurrency_limit=1, concurrency_id="render",
+    )  # fmt: skip
+    mos_btn.click(
+        mos_click, [person, secs], [mos_video, mos_note],
+        concurrency_limit=1, concurrency_id="render",
+    )  # fmt: skip
     return tab

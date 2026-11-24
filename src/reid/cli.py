@@ -39,6 +39,12 @@ def cmd_process(args: argparse.Namespace) -> int:
 
     cfg = _build_config(args)
     logging.basicConfig(level=cfg.runtime.log_level, format="%(levelname)s %(name)s: %(message)s")
+    from reid.storage.portable import apply_env_models
+
+    # an environment's vectors all come from one body/face model: a new run must keep it
+    cfg, note = apply_env_models(cfg, cfg.data_dir)
+    if note:
+        sys.stderr.write(f"note: processing keeps this environment's embedding models ({note})\n")
     cameras = load_cameras(args.cameras)
     files.ensure_dirs(cfg.data_dir)
     conn = db.connect(files.db_path(cfg.data_dir))
@@ -150,9 +156,13 @@ def cmd_search(args: argparse.Namespace) -> int:
     import cv2
 
     from reid import search
+    from reid.storage.portable import apply_env_models
     from reid.storage.vectors import VectorStore
 
     cfg = _build_config(args)
+    cfg, note = apply_env_models(cfg)
+    if note:
+        sys.stderr.write(f"reid search: {note}\n")
     img = cv2.imread(args.image)
     if img is None:
         sys.stderr.write(f"reid search: cannot read image {args.image!r}\n")
@@ -209,7 +219,11 @@ def cmd_journey(args: argparse.Namespace) -> int:
             if args.out
             else files.render_path(cfg.data_dir, f"journey_gid{args.gid}.mp4")
         )
-        follow_person(conn, cfg, args.gid, out)
+        try:
+            follow_person(conn, cfg, args.gid, out)
+        except FileNotFoundError as exc:
+            sys.stderr.write(f"reid journey: {exc}\n")
+            return 1
         sys.stdout.write(f"{out}\n")
         if args.gif:
             g = export_gif(out, out.with_suffix(".gif"), cfg.render.gif_fps, cfg.render.gif_width)
@@ -421,6 +435,82 @@ def collect_info(cfg: Config) -> dict[str, Any]:
     return stats
 
 
+def cmd_env(args: argparse.Namespace) -> int:
+    """``reid env list|export|import|relink``: move environments between machines."""
+    from reid.storage import portable as pt
+
+    try:
+        if args.env_cmd == "list":
+            rows = pt.list_envs(Path(args.workspace))
+            if not rows:
+                sys.stdout.write(f"no environment in {args.workspace}\n")
+            for r in rows:
+                sys.stdout.write(
+                    f"{r.name:<24} {r.cameras} cams  {r.people} people  {r.runs} runs  "
+                    f"{pt.human_size(r.size_bytes):>9}  "
+                    f"videos {r.videos_present}/{r.cameras}  preset {r.preset or '?'}\n"
+                )
+        elif args.env_cmd == "export":
+            res = pt.export_env(
+                args.data_dir_env, args.out,
+                with_videos=args.with_videos, with_renders=args.with_renders,
+            )  # fmt: skip
+            if res.missing_videos:
+                sys.stderr.write(f"warning: no video found for {', '.join(res.missing_videos)}\n")
+            sys.stdout.write(
+                f"{res.out}  ({pt.human_size(res.size_bytes)}, {len(res.videos)} videos)\n"
+            )
+        elif args.env_cmd == "import":
+            r = pt.import_env(args.archive, args.workspace, name=args.name, force=args.force)
+            sys.stdout.write(
+                f"imported '{r.name}' -> {r.path}\n"
+                f"{r.cameras} cameras, schema v{r.schema_version}, "
+                f"{r.videos_relinked} bundled videos\n"
+            )
+            if r.videos_missing:
+                sys.stdout.write(
+                    f"no local video for: {', '.join(r.videos_missing)} (clips and heatmaps need "
+                    "them; use `reid env relink`)\n"
+                )
+        else:
+            r = pt.relink_env(args.data_dir_env, args.videos)
+            for cid, path in r.relinked.items():
+                sys.stdout.write(f"relinked  {cid} -> {path}\n")
+            for cid in r.already_ok:
+                sys.stdout.write(f"ok        {cid}\n")
+            for cid, hits in r.ambiguous.items():
+                sys.stdout.write(f"ambiguous {cid}: {', '.join(hits)}\n")
+            for cid in r.missing:
+                sys.stdout.write(f"missing   {cid}\n")
+            return 0 if not (r.missing or r.ambiguous) else 3
+    except (ValueError, FileExistsError, RuntimeError) as exc:
+        sys.stderr.write(f"reid env {args.env_cmd}: {exc}\n")
+        return 1
+    return 0
+
+
+def _env_args(p: argparse.ArgumentParser) -> None:
+    sub = p.add_subparsers(dest="env_cmd", required=True)
+    q = sub.add_parser("list", help="list the environments of a workspace")
+    q.add_argument("--workspace", required=True, metavar="DIR")
+    q = sub.add_parser("export", help="zip an environment (for another machine)")
+    q.add_argument("--data-dir", dest="data_dir_env", required=True, metavar="ENV_DIR")
+    q.add_argument("--out", required=True, metavar="FILE.zip")
+    q.add_argument("--with-videos", action="store_true", help="bundle the camera videos (big)")
+    q.add_argument("--with-renders", action="store_true", help="include renders/ (default: skip)")
+    q = sub.add_parser("import", help="unzip an exported environment into a workspace")
+    q.add_argument("archive", metavar="FILE.zip")
+    q.add_argument("--workspace", required=True, metavar="DIR")
+    q.add_argument("--name", help="environment name (default: the one in the zip)")
+    q.add_argument("--force", action="store_true", help="replace an existing environment")
+    q = sub.add_parser("relink", help="point cameras at local copies of their videos")
+    q.add_argument("--data-dir", dest="data_dir_env", required=True, metavar="ENV_DIR")
+    q.add_argument("--videos", required=True, metavar="DIR")
+
+
+cmd_env.add_arguments = _env_args  # type: ignore[attr-defined]
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     cfg = _build_config(args)
     sys.stdout.write("# config\n")
@@ -439,6 +529,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "dataset": (cmd_dataset, "fetch labelled multi-camera footage (AI City 2024)"),
     "virtual-cams": (cmd_virtual_cams, "derive virtual cameras from one video"),
     "app": (cmd_app, "launch the Gradio app"),
+    "env": (cmd_env, "list, export, import or relink environments (Colab to PC)"),
     "info": (cmd_info, "print the effective config and data_dir statistics"),
 }
 

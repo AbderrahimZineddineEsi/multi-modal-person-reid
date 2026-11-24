@@ -1,0 +1,30 @@
+/* gradio chrome: tables, inputs, labels */
+.gradio-container table, .gradio-container table * { font-family: var(--font) !important; }
+.gradio-container .table-wrap { border-radius: var(--rd-radius); }
+.gradio-container thead th { background: var(--rd-raised) !important; color: var(--rd-muted) !important;
+  font-weight: 600 !important; }
+.gradio-container label > span, .gradio-container .block-info { font-size: 13px; }
+.gradio-container .block { border-radius: var(--rd-radius); }
+.gradio-container button.lg { font-weight: 650; }
+.gradio-container button.primary:disabled { opacity: .4; }
+
+/* progress and loading: a thin ivory edge and bar instead of Gradio's purple wash */
+.gradio-container .generating { border-color: var(--rd-text) !important; animation: none !important; }
+.gradio-container .progress-text, .gradio-container .meta-text { color: var(--rd-text) !important;
+  font-family: var(--rd-mono); font-size: 12.5px; }
+.gradio-container .progress-level-inner, .gradio-container .progress-bar { background: var(--rd-text) !important; }
+.gradio-container .eta-bar { background: #ebe8df14 !important; opacity: 1 !important; }
+.gradio-container .wrap.default, .gradio-container .wrap.center { background: #0d1012cc !important; }
+.gradio-container .loader { border-color: var(--rd-text) !important; }
+
+/* admin: edits are one calm group, deletions a separate group that is visibly dangerous */
+.rd-danger { margin-top: 28px; border: 1px solid #7a2e29 !important; border-radius: var(--rd-radius);
+  background: linear-gradient(180deg, #2a151310, transparent 140px), var(--rd-panel) !important; }
+.rd-danger > button, .rd-danger .label-wrap { color: var(--rd-bad) !important; font-weight: 650; }
+.rd-danger .prose h3 { color: #ff9f98; }
+.rd-danger .prose h3::after { background: #7a2e2966; }
+.rd-danger .block, .rd-danger .form { background: transparent !important; }
+.rd-danger input[type="text"], .rd-danger textarea { border-color: #7a2e2988 !important; }
+.rd-danger input[type="text"]:focus { border-color: var(--rd-bad) !important; box-shadow: 0 0 0 3px #e5655c33 !important; }
+button.stop, button.rd-destroy { font-weight: 650; }
+

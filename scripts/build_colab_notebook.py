@@ -61,7 +61,8 @@ What it does, in order:
 6. evaluates against the ground truth (AI City only);
 7. renders a mosaic of all cameras and a clip that follows one person across cameras, and
    searches by image;
-8. launches the Gradio app.
+8. exports the environment as a zip for your own PC (`reid env export`);
+9. launches the Gradio app.
 
 Use a **T4 GPU runtime** (Runtime > Change runtime type), then **Runtime > Run all**. Every step
 stops the notebook with a clear error if it fails, so the first red cell is the one to look at.
@@ -153,6 +154,7 @@ SOURCE = "aicity"  # "aicity" | "own" | "virtual"
 PRESET = "balanced"  # "lite" | "balanced" | "accurate" | "max"
 STRIDE = 2  # process every STRIDE-th frame (2 halves the time; 1 = full frame rate)
 REPROCESS = False  # True: process again even if this source/preset already has a finished run
+EXPORT_WITH_VIDEOS = False  # True: the export zip also bundles the camera videos (can be GBs)
 
 AICITY_MINUTES = 2  # (aicity) minutes of footage to keep
 OWN_VIDEOS_DIR = "videos"  # (own) folder under DATA_DIR; every video in it is one camera
@@ -365,8 +367,8 @@ md("""
 `reid search` embeds a query image and looks it up in the identity space (body, face, or both; a
 face match wins). Here the query is the best saved crop of the identity followed above, which is a
 circular test meant only to show the output; use any photo of a person instead. The status is
-`MATCH`, `AMBIGUOUS` (two identities too close) or `UNKNOWN`. Pass the same `--preset` as for
-processing so the query is embedded by the same model.
+`MATCH`, `AMBIGUOUS` (two identities too close) or `UNKNOWN`. The query is always embedded
+with the models the environment was processed with, whatever `--preset` says.
 """)
 code("""
 from IPython.display import Image
@@ -381,7 +383,30 @@ sh(["reid", "search", "--image", QUERY, "--mode", "both", *COMMON])
 """)
 
 md("""
-## 8. Launch the app
+## 8. Use this environment on your PC
+
+`reid env export` packs this environment (database, vectors, crops, faces, evaluation results;
+not the renders, which can be regenerated) into one zip on Drive. Browsing, search, metrics and
+admin then work on your own machine without a GPU. Set `EXPORT_WITH_VIDEOS = True` in the
+settings cell to also bundle the camera videos (needed on the PC for clips and heatmaps; it can
+add gigabytes). The zip's size is printed. See `docs/local_app.md` in the repository.
+""")
+code("""
+EXPORT_ZIP = DATA_DIR / "exports" / f"{ENV}.zip"
+sh(["reid", "env", "export", "--data-dir", RUN_DIR, "--out", EXPORT_ZIP,
+    *(["--with-videos"] if EXPORT_WITH_VIDEOS else [])])  # fmt: skip
+print(
+    f\"\"\"
+On your PC (after downloading the zip from Drive in the browser):
+
+  reid env import {EXPORT_ZIP.name} --workspace data/environments
+  reid app --workspace data/environments --env {ENV}
+\"\"\"
+)
+""")
+
+md("""
+## 9. Launch the app
 
 The Gradio app has tabs for processing, exploring identities and journeys, searching, per-camera
 views and metrics, plus an environment bar to switch between environments (or create one, e.g.

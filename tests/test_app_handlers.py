@@ -70,7 +70,9 @@ def test_build_app_is_lazy_and_has_expected_tabs(tmp_path):
 def test_theme_and_css_ship_with_package():
     style = theme.launch_style()
     assert isinstance(style["theme"], theme.ReidTheme)
-    assert ".rd-tile" in style["css"] and len(style["css"].splitlines()) < 200
+    assert ".rd-tile" in style["css"]
+    for name in theme.CSS_FILES:  # keep the stylesheet split by concern, not one monolith
+        assert len((theme.STATIC / name).read_text().splitlines()) < 200
 
 
 def test_launch_requires_auth_when_sharing(tmp_path, monkeypatch):

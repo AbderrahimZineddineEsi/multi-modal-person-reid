@@ -36,7 +36,7 @@ def default_out(cfg: Config, name: str) -> Path:
 
 
 def _open_source(cfg: Config, cam) -> FrameSource:
-    return FrameSource(resolve_video(cam.video_path, cfg.data_dir), (cam.width, cam.height))
+    return FrameSource(resolve_video(cam.video_path, cfg.data_dir, cam.id), (cam.width, cam.height))
 
 
 def render_camera(

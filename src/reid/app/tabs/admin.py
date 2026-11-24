@@ -169,7 +169,7 @@ def build(ctx: AppContext) -> gr.Tab:
                 sighting = gr.Dropdown([], label="Sighting to split off into a new person")
                 split_btn = gr.Button("Split off sighting")
         if not ctx.read_only:
-            with gr.Accordion("Delete data", open=False):
+            with gr.Accordion("Danger zone: delete data", open=False, elem_classes="rd-danger"):
                 gr.Markdown(
                     "These act on the environment selected in the bar above and cannot be undone.",
                     elem_classes="rd-hint",

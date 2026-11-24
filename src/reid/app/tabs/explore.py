@@ -6,7 +6,7 @@ import gradio as gr
 
 from reid import analytics
 from reid.app import components as C
-from reid.app import views
+from reid.app import videos, views
 from reid.app.state import AppContext
 from reid.app.theme import BG, MUTED, PANEL, TEXT
 from reid.viz.journey import follow_person
@@ -77,6 +77,7 @@ def build(ctx: AppContext) -> gr.Tab:
                 person = gr.Dropdown([], label="Person", info="Or click a face below.")
                 picker = gr.Gallery(
                     label=None, columns=2, height=520, object_fit="cover", allow_preview=False,
+                    elem_classes=["rd-picker"],
                     show_label=False, buttons=[],
                 )  # fmt: skip
             with gr.Column(scale=3):
@@ -86,6 +87,7 @@ def build(ctx: AppContext) -> gr.Tab:
                 timeline = gr.Plot(show_label=False)
                 gr.Markdown("### Follow clip")
                 clip_btn = gr.Button("Generate follow clip", variant="primary")
+                clip_note = gr.HTML(elem_classes="rd-note")
                 clip = gr.Video(show_label=False, autoplay=False)
     ctx.ui["explore_person"] = person
 
@@ -93,7 +95,10 @@ def build(ctx: AppContext) -> gr.Tab:
         return ids[evt.index]
 
     def clip_click(gid, progress=gr.Progress()):  # noqa: B008 (Gradio's progress idiom)
-        return make_clip(ctx, gid, progress)
+        return videos.render_or_note(lambda: make_clip(ctx, gid, progress))
+
+    def note() -> str:
+        return videos.availability_note(ctx)
 
     def reload():
         """Picker and the first person's view (ids repeat across environments, so show it)."""
@@ -107,5 +112,8 @@ def build(ctx: AppContext) -> gr.Tab:
     ctx.ui["env_version"].change(reload, None, [picker, gids, person, *shown])
     picker.select(pick, gids, person)
     person.change(lambda g: show(ctx, g), person, shown)
-    clip_btn.click(clip_click, person, clip, concurrency_limit=1, concurrency_id="render")
+    gr.on([person.change, ctx.ui["demo"].load], note, None, clip_note)
+    clip_btn.click(
+        clip_click, person, [clip, clip_note], concurrency_limit=1, concurrency_id="render"
+    )
     return tab

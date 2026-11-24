@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -16,7 +17,10 @@ from reid.app import environments as envs
 from reid.config import Config, load_config
 from reid.models.registry import Models
 from reid.storage import db, files
+from reid.storage.portable import apply_env_models
 from reid.storage.vectors import VectorStore
+
+log = logging.getLogger(__name__)
 
 # Config sections that decide which weights are loaded; a change means rebuilding the models.
 _MODEL_SECTIONS = ("runtime", "detection", "quality", "body_reid", "face")
@@ -72,8 +76,14 @@ class AppContext:
             raise ValueError(f"Environment '{name}' does not exist.")
         self.env = name
         self.data_dir = path.resolve()
-        self.cfg = self.cfg.model_copy(deep=True)
+        # --- model consistency hook: search must embed with the environment's own models
+        self._base_cfg = getattr(self, "_base_cfg", None) or self.cfg
+        self.cfg = self._base_cfg.model_copy(deep=True)
         self.cfg.paths.data_dir = str(self.data_dir)
+        self.cfg, self.model_note = apply_env_models(self.cfg, self.data_dir)
+        if self.model_note:
+            log.info("environment '%s': %s", name, self.model_note)
+        # --- end hook
         files.ensure_dirs(self.data_dir)
 
     def environments(self) -> list[envs.EnvInfo]:
@@ -101,7 +111,12 @@ class AppContext:
     def derive_cfg(self, preset: str | None, overrides: dict[str, Any] | None = None) -> Config:
         """Config for a processing run: ``preset`` + ``overrides`` on this app's data_dir."""
         merged = {"paths.data_dir": str(self.data_dir), **(overrides or {})}
-        return load_config(None, merged, preset=preset or None)
+        cfg = load_config(None, merged, preset=preset or None)
+        # an environment's vectors all come from one body/face model: new runs keep it
+        cfg, note = apply_env_models(cfg, self.data_dir)
+        if note:
+            log.info("processing into '%s' keeps its embedding models: %s", self.env, note)
+        return cfg
 
     def models(self, cfg: Config | None = None) -> Models:
         """Models for ``cfg`` (default: the app config); built once, reused while unchanged."""

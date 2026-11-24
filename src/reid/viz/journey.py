@@ -195,7 +195,7 @@ def follow_person(
     rgb = gid_color(gid)
     st = Style.from_cfg(cfg, highlight_gid=gid)
     srcs = {
-        cid: FrameSource(resolve_video(c.video_path, cfg.data_dir), (c.width, c.height))
+        cid: FrameSource(resolve_video(c.video_path, cfg.data_dir, c.id), (c.width, c.height))
         for cid, c in cams.items()
     }
     try:

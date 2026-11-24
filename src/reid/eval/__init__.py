@@ -59,7 +59,7 @@ def scale_gt_to_cameras(gt, cams: dict, data_dir: Path):
         if not m.any():
             continue
         try:
-            cap = cv2.VideoCapture(str(resolve_video(cam.video_path, data_dir)))
+            cap = cv2.VideoCapture(str(resolve_video(cam.video_path, data_dir, cam.id)))
             vw, vh = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
         except FileNotFoundError:

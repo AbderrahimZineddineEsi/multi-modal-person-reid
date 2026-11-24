@@ -63,6 +63,7 @@ def memory_html(ctx: AppContext, stats: dict | None) -> str:
                 f"{gm['required_mb'] / 1024:.2f} GB",
                 f"{how}: CUDA context + PyTorch + ONNX Runtime"
                 + (f", on {gm['gpu_name']}" if gm.get("gpu_name") else ""),
+                key=True,
             )
         )
         if gm.get("torch_reserved_mb"):
@@ -83,6 +84,7 @@ def memory_html(ctx: AppContext, stats: dict | None) -> str:
                 f"{live[0]:.1f} GB",
                 f"of {live[1]:.1f} GB",
                 100 * live[0] / live[1],
+                key=True,
             )
         )
     return C.tiles(items) if items else ""
@@ -95,7 +97,7 @@ def fragmentation(summary: dict) -> str:
         return ""
     top = max(per.values())
     rows = "".join(
-        f'<div class="rd-cand" style="--pc:#8b8bff"><span>Person {g}</span>'
+        f'<div class="rd-cand" style="--pc:var(--rd-text)"><span>Person {g}</span>'
         f'<div class="rd-meter"><i style="width:{100 * n / top:.0f}%"></i></div><b>{n}</b></div>'
         for g, n in per.items()
     )
@@ -146,7 +148,9 @@ def eval_results(ctx: AppContext):
 def build(ctx: AppContext) -> gr.Tab:
     with gr.Tab("Metrics", id="metrics") as tab:
         run = gr.Dropdown([], label="Run")
+        gr.Markdown("### Run summary")
         kpis = gr.HTML()
+        gr.Markdown("### Speed and GPU memory")
         mem = gr.HTML()
         stages = gr.Dataframe(label="Time per frame by stage", interactive=False, visible=False)
         gr.Markdown("### Sightings per person")

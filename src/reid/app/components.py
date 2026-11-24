@@ -64,14 +64,18 @@ def status_badge(status: str) -> str:
     return badge(STATUS_TEXT.get(status, status), STATUS_TONE.get(status, "dim"))
 
 
-def metric_tile(label: str, value: str, hint: str = "", pct: float | None = None) -> str:
-    """One KPI tile; ``pct`` (0-100) adds a thin meter under the value."""
+def metric_tile(
+    label: str, value: str, hint: str = "", pct: float | None = None, key: bool = False
+) -> str:
+    """One KPI tile; ``pct`` (0-100) adds a thin meter under the value, ``key`` marks the
+    numbers the page is about (GPU memory) with a stronger frame."""
     off = " rd-off" if pct is None else ""  # tiles without a meter keep its height
     width = max(0.0, min(pct or 0.0, 100.0))
     meter = f'<div class="rd-meter{off}"><i style="width:{width:.0f}%"></i></div>'
     hint_html = f'<div class="rd-tile-hint">{escape(hint)}</div>' if hint else ""
+    cls = "rd-tile rd-key" if key else "rd-tile"
     return (
-        f'<div class="rd-tile"><div class="rd-tile-value">{escape(value)}</div>{meter}'
+        f'<div class="{cls}"><div class="rd-tile-value">{escape(value)}</div>{meter}'
         f'<div class="rd-tile-label">{escape(label)}</div>{hint_html}</div>'
     )
 
@@ -80,9 +84,34 @@ def tiles(items: Iterable[str]) -> str:
     return f'<div class="rd-tiles">{"".join(items)}</div>'
 
 
+# viewfinder: four corner brackets around a dot, the app's motif for "nothing in frame yet"
+_FRAME_ICON = (
+    '<svg class="rd-empty-icon" viewBox="0 0 32 32" width="28" height="28" fill="none" '
+    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">'
+    '<path d="M4 11V6a2 2 0 0 1 2-2h5M21 4h5a2 2 0 0 1 2 2v5M28 21v5a2 2 0 0 1-2 2h-5'
+    'M11 28H6a2 2 0 0 1-2-2v-5"/><circle cx="16" cy="16" r="2.2" fill="currentColor" '
+    'stroke="none"/></svg>'
+)
+
+
 def empty_state(title: str, hint: str = "") -> str:
     sub = f"<p>{escape(hint)}</p>" if hint else ""
-    return f'<div class="rd-empty"><strong>{escape(title)}</strong>{sub}</div>'
+    return f'<div class="rd-empty">{_FRAME_ICON}<strong>{escape(title)}</strong>{sub}</div>'
+
+
+MISSING_VIDEO_TITLE = "Source video not available on this machine"
+MISSING_VIDEO_HINT = "Clips need the videos; search and browsing still work."
+
+
+def notice(title: str, hint: str = "", tone: str = "warn") -> str:
+    """Inline message bar for something that cannot be done right now (not an error)."""
+    sub = f"<p>{escape(hint)}</p>" if hint else ""
+    return f'<div class="rd-notice rd-{tone}"><strong>{escape(title)}</strong>{sub}</div>'
+
+
+def missing_video_notice() -> str:
+    """Shown instead of a clip when the camera videos are not on this machine."""
+    return notice(MISSING_VIDEO_TITLE, MISSING_VIDEO_HINT)
 
 
 def _avatar(p: PersonCard) -> str:
@@ -212,6 +241,19 @@ def cameras_html(rows: Sequence[CameraRow]) -> str:
 def page_header(title: str, subtitle: str, pills: Sequence[str] = ()) -> str:
     """Top bar: product name, one-line description and status pills."""
     return (
-        f'<header class="rd-header"><div><h1>{escape(title)}</h1><p>{escape(subtitle)}</p></div>'
-        f'<div class="rd-row">{"".join(pills)}</div></header>'
+        f'<header class="rd-header">{_logo()}<div class="rd-brand"><h1>{escape(title)}</h1>'
+        f'<p>{escape(subtitle)}</p></div><div class="rd-row">{"".join(pills)}</div></header>'
+    )
+
+
+def _logo() -> str:
+    """One person's path across three cameras: three dots in identity colours on one line."""
+    dots = "".join(
+        f'<circle cx="{x}" cy="{y}" r="4" fill="{hex_color(gid_color(g))}"/>'
+        for g, x, y in ((1, 6, 22), (2, 20, 8), (3, 34, 18))
+    )
+    return (
+        '<svg class="rd-logo" viewBox="0 0 40 30" width="40" height="30" aria-hidden="true">'
+        '<path d="M6 22 20 8 34 18" fill="none" stroke="#929a9e" stroke-width="1.4" '
+        f'stroke-dasharray="2 3"/>{dots}</svg>'
     )

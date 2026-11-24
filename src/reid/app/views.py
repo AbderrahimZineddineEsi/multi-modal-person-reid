@@ -139,7 +139,10 @@ def summary_tiles(summary: dict[str, Any], stats: dict[str, Any] | None = None) 
         peak = need or (stats.get("vram_peak_mb") or {}).get("total_peak")
         items.append(
             C.metric_tile(
-                "Speed", f"{stats.get('fps', 0):.1f} fps", "frames per second, all stages"
+                "Speed",
+                f"{stats.get('fps', 0):.1f} fps",
+                "frames per second, all stages",
+                key=True,
             )
         )
         if peak:
@@ -148,6 +151,7 @@ def summary_tiles(summary: dict[str, Any], stats: dict[str, Any] | None = None) 
                     "GPU memory",
                     f"{peak / 1024:.2f} GB",
                     "needed: whole-process peak" if need else "PyTorch peak only (older run)",
+                    key=True,
                 )
             )
     return C.tiles(items)

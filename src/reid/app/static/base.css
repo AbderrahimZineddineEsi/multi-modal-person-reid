@@ -1,0 +1,69 @@
+/* reid app: control-room look. Tokens mirror theme.py. Classes are prefixed rd- to stay clear of
+   Gradio's own. Rule of the house: the interface is graphite and ivory; colour belongs to people.
+   Files: base.css (tokens, page, header, environment bar, tabs, headings), components.css
+   (badges, notices, tiles, people, journey, search, tables), chrome.css (Gradio overrides,
+   progress, admin danger zone). They are joined in that order. */
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&display=swap");
+
+:root {
+  --rd-bg: #0d1012; --rd-panel: #14181b; --rd-raised: #1b2125; --rd-line: #2a3338;
+  --rd-line-soft: #202a2e;
+  --rd-text: #ebe8df; --rd-muted: #929a9e; --rd-faint: #626c71; --rd-accent: #ebe8df;
+  --rd-ok: #6fcf97; --rd-warn: #e3b564; --rd-bad: #e5655c;
+  --rd-display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  --rd-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --rd-radius: 10px;
+  color-scheme: dark;
+}
+
+/* page */
+.gradio-container, .gradio-container .app {
+  width: 100%; max-width: 1560px !important; margin: 0 auto; }
+.gradio-container { padding: 0 28px !important; }
+.gradio-container, .gradio-container * { font-variant-numeric: tabular-nums; }
+.gradio-container .prose p { max-width: 72ch; }
+:focus-visible { outline: 2px solid var(--rd-text) !important; outline-offset: 2px; }
+@media (max-width: 900px) { .gradio-container { padding: 0 14px !important; } }
+
+/* header: wordmark and the one-line promise */
+.rd-header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 22px 2px 16px; }
+.rd-logo { flex: none; }
+.rd-brand { flex: 1; min-width: 240px; }
+.rd-header h1 { margin: 0; font-family: var(--rd-display); font-size: 30px; font-weight: 650;
+  letter-spacing: -0.035em; line-height: 1; }
+.rd-header p { margin: 6px 0 0; color: var(--rd-muted); font-size: 14px; }
+
+/* environment bar: a control strip that belongs to the header, not to a tab */
+.rd-envbar { align-items: center !important; gap: 10px !important; margin-bottom: 10px;
+  padding: 8px 10px !important; background: var(--rd-panel); border: 1px solid var(--rd-line);
+  border-radius: var(--rd-radius); flex-wrap: nowrap !important; }
+.rd-envbar .block { border: none !important; background: transparent !important; }
+.rd-envbar [data-testid="dropdown"], .rd-envbar input { font-family: var(--rd-mono); font-size: 13.5px; }
+.rd-envbar button.secondary, .rd-envbar button.primary { white-space: nowrap; }
+.rd-envbar > .form, .rd-envbar > div:first-child { flex: 1 1 auto !important; min-width: 220px; }
+.rd-envbar > button { flex: 0 0 auto !important; }
+.rd-envmsg { flex: 0 0 auto !important; width: auto !important; min-width: 0 !important;
+  padding: 0 !important; }
+.rd-envmsg:not(:has(.rd-badge)) { display: none; }
+@media (max-width: 700px) { .rd-envbar { flex-wrap: wrap !important; } }
+
+/* navigation: quiet text tabs, ivory rule under the current one */
+.gradio-container .tab-wrapper { margin-bottom: 18px; }
+button[role="tab"] { font-size: 15px; font-weight: 500; color: var(--rd-muted) !important;
+  padding: 10px 16px !important; border: none !important; border-radius: 0 !important;
+  background: transparent !important; box-shadow: none !important; }
+button[role="tab"]:hover { color: var(--rd-text) !important; }
+button[role="tab"][aria-selected="true"] { color: var(--rd-text) !important; font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--rd-text) !important; }
+/* Admin changes data, so its tab says so */
+button[data-tab-id="admin"]::before { content: ""; display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--rd-bad); margin-right: 8px; vertical-align: 2px; }
+.gradio-container .tab-wrapper .overflow-menu button { color: var(--rd-muted); }
+
+/* headings: a small title that runs into a hairline */
+.gradio-container .prose h3 { display: flex; align-items: center; gap: 14px; margin: 22px 0 10px;
+  font-family: var(--rd-display); font-size: 15px; font-weight: 600; letter-spacing: 0.005em;
+  color: var(--rd-text); }
+.gradio-container .prose h3::after { content: ""; flex: 1; height: 1px; background: var(--rd-line); }
+.gradio-container .prose { max-width: none; }
+

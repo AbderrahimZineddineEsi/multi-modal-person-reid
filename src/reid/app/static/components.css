@@ -1,0 +1,129 @@
+/* shared bits */
+.rd-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rd-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; border: 1px solid var(--rd-line); color: var(--rd-muted);
+  background: transparent; white-space: nowrap; }
+.rd-badge.rd-ok { color: var(--rd-ok); border-color: #6fcf9755; background: #6fcf9712; }
+.rd-badge.rd-warn { color: var(--rd-warn); border-color: #e3b56455; background: #e3b56412; }
+.rd-badge.rd-bad { color: var(--rd-bad); border-color: #e5655c66; background: #e5655c14; }
+.rd-badge.rd-accent { color: var(--rd-text); border-color: #ebe8df55; background: #ebe8df10; }
+.rd-hint, .rd-hint p { color: var(--rd-muted) !important; font-size: 13px; }
+.rd-plain { border: none !important; background: transparent !important; box-shadow: none !important; }
+footer { opacity: .5; }
+
+/* empty states and notices */
+.rd-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 34px 20px;
+  text-align: center; color: var(--rd-muted); border: 1px dashed var(--rd-line);
+  border-radius: var(--rd-radius); }
+.rd-empty-icon { color: var(--rd-faint); margin-bottom: 8px; }
+.rd-empty strong { color: var(--rd-text); font-weight: 600; font-size: 15px; }
+.rd-empty p { margin: 0; font-size: 13.5px; }
+.rd-notice { padding: 12px 16px; border-radius: var(--rd-radius); border: 1px solid var(--rd-line);
+  border-left-width: 3px; background: var(--rd-panel); }
+.rd-notice strong { display: block; font-weight: 600; }
+.rd-notice p { margin: 3px 0 0; color: var(--rd-muted); font-size: 13.5px; }
+.rd-notice.rd-warn { border-color: #e3b56444; border-left-color: var(--rd-warn); background: #e3b56410; }
+.rd-notice.rd-warn strong { color: var(--rd-warn); }
+.rd-notice.rd-bad { border-color: #e5655c44; border-left-color: var(--rd-bad); background: #e5655c10; }
+.rd-notice.rd-bad strong { color: var(--rd-bad); }
+
+/* slots that hold a notice show up only when there is one */
+.rd-note:not(:has(.rd-notice)) { display: none; }
+
+/* meters */
+.rd-meter { height: 4px; border-radius: 4px; background: var(--rd-raised); overflow: hidden; }
+.rd-meter.rd-off { visibility: hidden; }
+.rd-meter i { display: block; height: 100%; background: var(--pc, var(--rd-text)); border-radius: 4px; }
+
+/* metric tiles: the number leads; tiles the page is about (GPU memory, speed) get a frame */
+.rd-tiles { margin-bottom: 14px; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.rd-tile { background: var(--rd-panel); border: 1px solid var(--rd-line); border-radius: var(--rd-radius);
+  padding: 16px 18px 15px; display: flex; flex-direction: column; gap: 7px; }
+.rd-tile-value { font-family: var(--rd-display); font-size: 34px; font-weight: 600;
+  letter-spacing: -0.035em; line-height: 1.05; }
+.rd-tile-label { font-size: 14px; font-weight: 600; }
+.rd-tile-hint { font-size: 12.5px; color: var(--rd-muted); line-height: 1.35; }
+.rd-tile.rd-key { background: linear-gradient(180deg, var(--rd-raised), var(--rd-panel));
+  border-color: #ebe8df40; box-shadow: inset 0 2px 0 var(--rd-text); }
+.rd-tile.rd-key .rd-tile-value { font-size: 40px; }
+.rd-tile.rd-key .rd-meter i { background: var(--rd-text); }
+
+/* identity cards: the person's colour (--pc) is the rail and the viewfinder brackets */
+.rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.rd-card { background: var(--rd-panel); border: 1px solid var(--rd-line); border-radius: var(--rd-radius); }
+.rd-person { display: flex; gap: 16px; padding: 14px; border-left: 3px solid var(--pc);
+  border-radius: 3px var(--rd-radius) var(--rd-radius) 3px; align-items: center; }
+.rd-avatar { position: relative; flex: none; width: 64px; height: 86px; border-radius: 4px;
+  background: var(--rd-raised); display: flex; align-items: center; justify-content: center;
+  --b: 14px; --t: 2px; }
+.rd-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  object-position: top; border-radius: 4px; }
+.rd-avatar::before { content: ""; position: absolute; inset: -5px; pointer-events: none; color: var(--pc);
+  background:
+    linear-gradient(currentColor, currentColor) top left / var(--b) var(--t) no-repeat,
+    linear-gradient(currentColor, currentColor) top left / var(--t) var(--b) no-repeat,
+    linear-gradient(currentColor, currentColor) top right / var(--b) var(--t) no-repeat,
+    linear-gradient(currentColor, currentColor) top right / var(--t) var(--b) no-repeat,
+    linear-gradient(currentColor, currentColor) bottom left / var(--b) var(--t) no-repeat,
+    linear-gradient(currentColor, currentColor) bottom left / var(--t) var(--b) no-repeat,
+    linear-gradient(currentColor, currentColor) bottom right / var(--b) var(--t) no-repeat,
+    linear-gradient(currentColor, currentColor) bottom right / var(--t) var(--b) no-repeat; }
+.rd-initial { font-family: var(--rd-display); font-size: 24px; font-weight: 600; color: var(--pc); }
+.rd-person-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rd-person-name { font-family: var(--rd-display); font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.rd-gid { margin-left: 8px; color: var(--rd-faint); font-family: var(--rd-mono); font-weight: 400; font-size: 12px; }
+.rd-person-meta { font-size: 13px; color: var(--rd-muted); }
+.rd-big { padding: 20px; gap: 24px; }
+.rd-big .rd-avatar { width: 96px; height: 128px; --b: 18px; --t: 2px; }
+.rd-big .rd-person-name { font-size: 26px; letter-spacing: -0.025em; }
+.rd-big .rd-person-meta { font-size: 14px; }
+
+/* journey rail */
+.rd-journey { list-style: none; margin: 0; padding: 6px 14px 6px 22px; position: relative;
+  background: var(--rd-panel); border: 1px solid var(--rd-line); border-radius: var(--rd-radius); }
+.rd-journey::before { content: ""; position: absolute; left: 27px; top: 26px; bottom: 26px;
+  width: 2px; background: var(--pc); opacity: .4; }
+.rd-journey li { position: relative; display: flex; align-items: center; gap: 14px;
+  padding: 8px 8px 8px 24px; }
+.rd-journey li + li { border-top: 1px solid var(--rd-line-soft); }
+.rd-dot { position: absolute; left: 6px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--pc); box-shadow: 0 0 0 4px var(--rd-panel); }
+.rd-step-thumb { flex: none; width: 36px; height: 52px; border-radius: 4px; overflow: hidden;
+  background: var(--rd-raised); }
+.rd-step-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.rd-step-body { flex: 1; min-width: 0; }
+.rd-step-cam { font-family: var(--rd-mono); font-weight: 500; font-size: 14px; }
+.rd-step-time { font-family: var(--rd-mono); font-size: 12px; color: var(--rd-muted); margin-top: 2px; }
+
+/* camera list */
+.rd-cams { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rd-cams li { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 11px 14px; background: var(--rd-panel); border: 1px solid var(--rd-line);
+  border-radius: var(--rd-radius); flex-wrap: wrap; }
+.rd-cams b { display: block; font-family: var(--rd-mono); font-weight: 500; font-size: 13.5px; }
+.rd-cams span { color: var(--rd-muted); font-size: 12px; font-family: var(--rd-mono); }
+
+/* search candidates and bar lists */
+.rd-cands { max-width: 720px; display: flex; flex-direction: column; gap: 8px; }
+.rd-cand { display: grid; grid-template-columns: 110px 1fr 44px; gap: 12px; align-items: center;
+  font-size: 13.5px; color: var(--rd-muted); }
+.rd-cand.rd-best { color: var(--rd-text); font-weight: 600; }
+.rd-cand b { text-align: right; font-weight: 500; font-family: var(--rd-mono); font-size: 13px; }
+.rd-query { height: 190px; width: auto; align-self: flex-start; border-radius: 4px;
+  border: 1px solid var(--rd-line); }
+.rd-result { display: flex; flex-direction: column; gap: 16px; }
+.rd-result-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* transitions matrix */
+.rd-matrix, .rd-matrix th, .rd-matrix td { border: none !important; }
+.rd-matrix { border-collapse: separate; border-spacing: 4px; font-size: 13px; }
+.rd-matrix th { font-family: var(--rd-mono); font-weight: 400; font-size: 12px; color: var(--rd-muted);
+  padding: 6px 10px; text-align: left; }
+.rd-matrix td { min-width: 64px; height: 40px; text-align: center; border-radius: 4px; font-weight: 600;
+  background: color-mix(in srgb, var(--rd-text) calc(var(--a) * 80%), var(--rd-raised));
+  color: color-mix(in srgb, #0d1012 calc(var(--a) * 100%), var(--rd-text)); }
+
+
+/* person crops are tall: keep heads in view when cropping to a square */
+.rd-picker img { object-position: top center !important; }

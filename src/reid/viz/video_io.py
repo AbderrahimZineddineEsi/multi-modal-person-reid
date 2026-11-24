@@ -170,14 +170,27 @@ class FrameSource:
         self.close()
 
 
-def resolve_video(video_path: str, data_dir: str | Path | None = None) -> Path:
-    """Locate a camera's video (as stored, else relative to ``data_dir``)."""
-    p = Path(video_path).expanduser()
-    if p.exists():
-        return p
-    if data_dir is not None and (Path(data_dir) / p).exists():
-        return Path(data_dir) / p
-    raise FileNotFoundError(f"video not found: {video_path}")
+def resolve_video(
+    video_path: str, data_dir: str | Path | None = None, camera_id: str | None = None
+) -> Path:
+    """Locate a camera's video.
+
+    Tried in order: the stored path, relative to ``data_dir``, ``data_dir/videos/<basename>``
+    and (given ``camera_id``) ``data_dir/videos/<camera_id>.*``; the last two only when
+    unambiguous. Raises ``FileNotFoundError`` with a hint on how to fix it.
+    """
+    from reid.storage.portable import find_video
+
+    found = find_video(video_path, Path(data_dir), camera_id) if data_dir is not None else None
+    if found is None and Path(video_path).expanduser().exists():
+        found = Path(video_path).expanduser()
+    if found is None:
+        raise FileNotFoundError(
+            f"video not found: {video_path}. This environment has no local copy of it: "
+            "browsing, search and metrics still work, but clips and heatmaps need the video. "
+            "Use `reid env relink --data-dir ENV --videos DIR` or re-export with --with-videos."
+        )
+    return found
 
 
 def display_resize(img: np.ndarray, size: tuple[int, int]) -> np.ndarray:
