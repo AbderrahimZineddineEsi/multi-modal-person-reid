@@ -304,9 +304,10 @@ def choose_preset(
 ) -> tuple[str, str]:
     """Preset for ``--preset auto`` and the reason.
 
-    No CUDA (or ``device_plan=cpu``) or < 2 GB VRAM -> ``lite``; 2-6 GB -> ``balanced``;
-    >= 6 GB -> ``accurate``. ``max`` is never picked automatically: it is slower for a small
-    accuracy gain, so it stays an explicit choice.
+    No CUDA (or ``device_plan=cpu``) or < 2 GB VRAM -> ``lite``; otherwise ``balanced``, the
+    preset with the strongest evidence (AI City benchmark on a T4, correct identities on the real
+    warehouse showcase, where ``accurate`` merged two similarly dressed men). ``accurate`` and
+    ``max`` stay explicit choices.
     """
     if device_plan == "cpu" or not hw.cuda:
         return "lite", "CPU only" if not hw.cuda else "device_plan=cpu"
@@ -314,6 +315,4 @@ def choose_preset(
     src = "VRAM budget" if budget_gb is not None else "free VRAM"
     if gb < 2:
         return "lite", f"{gb:.1f} GB {src} (< 2 GB)"
-    if gb < 6:
-        return "balanced", f"{gb:.1f} GB {src} (2-6 GB)"
-    return "accurate", f"{gb:.1f} GB {src} (>= 6 GB)"
+    return "balanced", f"{gb:.1f} GB {src} (>= 2 GB)"

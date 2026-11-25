@@ -87,3 +87,14 @@ def test_camera_validation(tmp_path: Path):
     )
     with pytest.raises(ValidationError):
         load_cameras(bad)
+
+
+def test_camera_paths_relative_to_the_yaml_folder(tmp_path, monkeypatch):
+    from reid.config import load_cameras
+
+    (tmp_path / "set").mkdir()
+    (tmp_path / "set" / "cam.mp4").write_bytes(b"")
+    y = tmp_path / "set" / "cams.yaml"
+    y.write_text("cameras:\n  - id: c1\n    name: c1\n    video_path: cam.mp4\n")
+    monkeypatch.chdir(tmp_path)  # cam.mp4 does not exist relative to the working directory
+    assert load_cameras(y).cameras[0].video_path == str(tmp_path / "set" / "cam.mp4")

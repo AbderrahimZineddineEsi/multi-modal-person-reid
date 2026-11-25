@@ -341,7 +341,12 @@ class ConsolidationCfg(_Section):
     enabled: bool = _f(True, "Run consolidation at the end of a run.")
     linkage: Literal["average", "complete", "single"] = _f("average", "Agglomerative linkage.")
     merge_threshold: float = _f(
-        0.25, "Stop merging above this 1 - cos distance (0.25 = cos 0.75).", ge=0, le=2
+        0.35,
+        "Stop merging above this 1 - cos distance (0.35 = cos 0.65). 0.25 left one man split "
+        "between face and overhead cameras on the real warehouse showcase; 0.35 joined him and "
+        "gave identical results on AI City scene 075 (10 ids, none merged).",
+        ge=0,
+        le=2,
     )
     use_faces: bool = _f(
         True, "Face matches between identities are must-links, face conflicts cannot-links."
@@ -602,12 +607,21 @@ def resolve_auto_preset(user: dict[str, Any] | None = None) -> str:
 def load_cameras(path: str | Path) -> CameraSet:
     """Load a camera set YAML (``cameras:`` list and optional ``topology:``).
 
-    Relative ``video_path`` / ``background`` values are kept as written (relative to the
-    working directory); ``~`` is expanded.
+    Relative ``video_path`` / ``background`` values are kept as written when they exist relative
+    to the working directory; otherwise, if they exist relative to the YAML file's folder, that
+    path is used (so a camera set works from any directory). ``~`` is expanded.
     """
     cs = CameraSet.model_validate(_read_yaml(path))
+    base = Path(path).expanduser().resolve().parent
+
+    def fix(p: str) -> str:
+        q = Path(p).expanduser()
+        if not q.is_absolute() and not q.exists() and (base / q).exists():
+            return str(base / q)
+        return str(q)
+
     for c in cs.cameras:
-        c.video_path = str(Path(c.video_path).expanduser())
+        c.video_path = fix(c.video_path)
         if c.background:
-            c.background = str(Path(c.background).expanduser())
+            c.background = fix(c.background)
     return cs

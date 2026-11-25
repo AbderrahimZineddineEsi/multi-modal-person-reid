@@ -253,8 +253,10 @@ consolidation:
   enabled: true
   # Agglomerative linkage. (default: "average")
   linkage: "average"
-  # Stop merging above this 1 - cos distance (0.25 = cos 0.75). (default: 0.25)
-  merge_threshold: 0.25
+  # Stop merging above this 1 - cos distance (0.35 = cos 0.65). 0.25 left one man split between
+  # face and overhead cameras on the real warehouse showcase; 0.35 joined him and gave identical
+  # results on AI City scene 075 (10 ids, none merged). (default: 0.35)
+  merge_threshold: 0.35
   # Face matches between identities are must-links, face conflicts cannot-links. (default: true)
   use_faces: true
   # Cluster together with identities already in data_dir. (default: true)

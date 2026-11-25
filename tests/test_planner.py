@@ -129,7 +129,7 @@ def test_cost_scales_with_batch():
         (gpu(1.5), "lite"),
         (gpu(3, cc=(6, 1)), "balanced"),
         (gpu(5.9), "balanced"),
-        (gpu(15), "accurate"),
+        (gpu(15), "balanced"),  # T4: balanced is the evidence-backed default
     ],
 )
 def test_choose_preset(hw, preset):
@@ -143,7 +143,7 @@ def test_choose_preset_budget_and_cpu_mode():
 
 def test_load_config_auto_preset(monkeypatch):
     monkeypatch.setattr("reid.models.planner.detect_hardware", lambda *a: gpu(15))
-    assert load_config(preset="auto").detection.model == "rfdetr-medium"  # accurate
+    assert load_config(preset="auto").detection.model == "yolo26m-pose.pt"  # balanced
     monkeypatch.setattr("reid.models.planner.detect_hardware", lambda *a: NO_GPU)
     cfg = load_config(overrides={"runtime.batch_size": 3}, preset="auto")
     assert cfg.detection.model == "yolo26n-pose.pt" and cfg.runtime.batch_size == 3  # lite

@@ -225,7 +225,7 @@ and reloaded, so runs accumulate across sessions. Interface used by the pipeline
 ### 3.7 Consolidation
 
 `identity/consolidate.py`. Constrained average-linkage agglomerative clustering over gid centroids, stopped at
-`merge_threshold` 0.25 (1 - cos). Face must-links are applied first. Cannot-links are never violated, also
+`merge_threshold` 0.35 (1 - cos, i.e. cosine 0.65; 0.25 left one man split on the real warehouse showcase and 0.35 gave identical results on AI City). Face must-links are applied first. Cannot-links are never violated, also
 transitively. The merged identity keeps the oldest gid. Tracklets are relabelled with `source='consolidate'` and
 the change is written to `tracklet_gid_history`. Galleries of merged identities are united and pruned to budget.
 By default it also clusters with identities already in the environment (`include_existing`). Manual operations
@@ -270,7 +270,7 @@ Selected with `--preset`. Precedence of configuration: built-in defaults < prese
 |---|---|---|---|---|---|
 | `lite` | YOLO26n-pose (single model) | ByteTrack | OSNet x1.0 (512-D) | buffalo_sc | small GPU / CPU |
 | `balanced` (default) | YOLO26m-pose (single model) | BoT-SORT, motion-only | CLIP-ReID (1280-D) | buffalo_l | free Colab T4 |
-| `accurate` | RF-DETR-M + YOLO26s-pose on crops (320) | BoT-SORT with appearance | CLIP-ReID | buffalo_l | 6 GB+ GPU |
+| `accurate` | RF-DETR-M + YOLO26s-pose on crops (320) | BoT-SORT with appearance | CLIP-ReID | buffalo_l | on request (6 GB+ GPU) |
 | `max` | RF-DETR-L (704) + YOLO26m-pose on crops (384) | OccluBoost with appearance | CLIP-ReID | antelopev2 | quality first |
 
 `max` does not use PersonViT-B yet: the preset file says so, and the weights are not wired in (see
@@ -314,7 +314,7 @@ pessimistic.
   `detect_device` / `embed_device` values override the planner.
 
 `--preset auto` (default for `reid process` and `reid app`; the other commands default to `balanced`): no CUDA or
-less than 2 GB free VRAM gives `lite`; 2 to 6 GB gives `balanced`; 6 GB or more gives `accurate`. `max` is
+less than 2 GB free VRAM gives `lite`; anything else gives `balanced` (the preset with the strongest evidence; on the real warehouse showcase `accurate` merged two similarly dressed men). `max` is
 never chosen automatically. `reid info` prints the hardware, the preset auto would pick and the device plan.
 
 Measured on the GTX 1050 (600 frames): auto chose `balanced`, detector and body on GPU, face on CPU, 10.8 fps,

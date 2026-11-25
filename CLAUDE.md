@@ -63,7 +63,7 @@ for reasonable speed; do not run them just to check something that unit tests co
   `data_dir`.
 - **Models** (`models/`): wrappers per model behind `registry.build_models`. `planner.py` decides GPU/CPU per
   model from free VRAM and a measured cost table; `placement.py` handles OOM at run time (halve batch, then CPU).
-  `--preset auto` picks lite / balanced / accurate from the GPU.
+  `--preset auto` picks lite (no GPU or < 2 GB) or balanced from the GPU.
 - **Config**: pydantic models in `config.py` (unknown keys are errors). Precedence: defaults < preset
   (`configs/presets/*.yaml`, packaged as `reid/presets`) < `-c` file < `--set KEY=VALUE`.
 - **App** (`app/`): `build_app(cfg)` assembles tabs from `app/tabs/*.py` (layout and wiring only, each exposes

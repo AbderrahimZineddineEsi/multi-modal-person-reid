@@ -1,5 +1,5 @@
 # Example camera set. Copy, edit and pass to `reid process` as the camera set.
-# Relative paths are relative to the working directory.
+# Relative paths: the working directory, else this file's folder.
 cameras:
   - id: cam_entrance
     name: Entrance
@@ -8,7 +8,7 @@ cameras:
     is_face_cam: true      # run face detection/embedding here
     # fps: 30              # override the fps read from the file
     # homography: [[1,0,0],[0,1,0],[0,0,1]]   # image -> floor plan
-    # background: assets/camera_backgrounds/bg_cam_03.jpg
+    # background: backgrounds/entrance.jpg   # optional floor-plan / background image
   - id: cam_aisle
     name: Aisle
     video_path: videos/aisle.mp4

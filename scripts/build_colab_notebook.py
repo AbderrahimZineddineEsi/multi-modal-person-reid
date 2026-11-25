@@ -502,7 +502,7 @@ code(
     """
 from reid.notebook import sh
 
-PRESET = "auto"  # auto = chosen from the GPU (accurate on a T4) | lite | balanced | accurate | max
+PRESET = "auto"  # auto = from the GPU (balanced on a T4) | lite | balanced | accurate | max
 ENV = "default"  # environment opened at start (created if missing)
 DRIVE_DATA_DIR = "/content/drive/MyDrive/reid_data"
 LOCAL_DATA_DIR = "/content/reid_data"  # used if Drive is not mounted (lost with the runtime)

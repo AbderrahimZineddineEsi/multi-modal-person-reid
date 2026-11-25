@@ -1,136 +1,154 @@
-# Multi-Modal Person Re-ID & Face Association Pipeline
+# Multi-camera person re-identification with face confirmation
 
-Real-time person **re-identification (Re-ID)** and **face association** for retail surveillance analytics.
+**Who walked where?** This system follows people across several cameras that do not see each other,
+gives each person one identity, confirms identities with faces when a face is visible, and lets you
+search the footage with a photo. It is the person re-identification part of a retail-surveillance
+graduation project, rewritten as an installable package with a CLI, a web app and a free Colab path.
 
-This repository contains the **Re-ID part** of a larger Intelligent Retail Surveillance graduation project
-(automated shoplifting detection and a conversational VLM orchestrator are separate team contributions — see
-`team_materials/`, which is intentionally excluded from git).
+<p align="center">
+  <img src="assets/showcase/hero.gif" width="760" alt="One worker followed from camera to camera with the same ID">
+</p>
 
-**Author:** Abderrahim Zineddine
-**Environment:** Kaggle (2× NVIDIA Tesla T4, 16 GB VRAM each) · Python 3.12 · PyTorch
-**Evaluation:** 85.35% body-search accuracy on 1,317 crops · ~184 ms average query latency
+<p align="center">
+  <img src="assets/showcase/identities.png" width="760" alt="The four workers, each with one identity across cameras">
+</p>
 
----
+*Eight clips of the same four warehouse workers, filmed from eight angles. The system gives each man one
+identity: ID 1 is found in all 8 cameras and confirmed by his face; searching with a crop of each man
+taken from one camera returns the right person (4 out of 4). Footage: Pexels, see [credits](assets/showcase/CREDITS.md).*
 
-## What the system does
-
-Given supermarket camera footage, the pipeline:
-
-1. **Detects** every person in every frame (RT-DETR)
-2. **Tracks** them within a camera view (BotSort → temporary `track_id`)
-3. **Quality-gates** the crop using pose estimation (YOLOv11-Pose), rejecting partial bodies
-4. **Embeds** body appearance (CLIP-ReID, 1280-D) and face identity (InsightFace ArcFace, 512-D)
-5. **Resolves** a persistent global ID (`gid`) per person, using face recognition as ground truth
-6. **Records** each visit: entry/exit time, duration, camera, and the best body & face crop
-7. **Enables search**: give an image, find the matching identity and its movement history
-
-### Two modalities working together
-
-| Modality | Strength | Weakness | Role |
-|----------|----------|----------|------|
-| **Body Re-ID** | Works at any distance/angle, no face needed | Fails with similar clothing / uniforms | Primary identification |
-| **Face Recognition** | Extremely accurate | Needs a close, front-facing, well-lit face | Ground truth & correction |
-
-**Key idea — retroactive identity healing:** when a face is recognized, the system can *merge* a
-previously (wrongly) assigned body-based ID into the true face identity and repair all of its history.
-
-```
-Video Frame
-   ├─► RT-DETR (detection) ─► BotSort (tracking) ─► track_id
-   │        └─► YOLOv11-Pose (quality gate) ─► reject bad crops
-   ├─► CLIP-ReID  ─► 1280-D body embedding ─┐
-   └─► InsightFace ─► 512-D face embedding   │
-                                             ▼
-                          Identity Resolution (face-as-ground-truth,
-                          self-adaptive gallery, DBSCAN unknown minting)
-                                             ▼
-                 Pinecone (vectors) + MongoDB Atlas (metadata) + ImageKit (CDN)
-                                             ▼
-                          Search engine + Gradio dashboard
-```
+[![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/multi-modal-person-reid/blob/v2/notebooks/colab_demo.ipynb)
 
 ---
 
-## Repository layout
+## What it does
 
-```
-notebooks/      The three Re-ID modules (run in order on Kaggle)
-docs/           Full technical report + design discussion notes
-reports/        Exported PDF reports
-presentations/  Slide decks for the Re-ID part
-assets/         Diagrams, demo images, per-camera background frames
-archive/        Superseded notebook versions and dev scripts (kept for reference)
-team_materials/ Teammates' parts (shoplifting detector, VLM orchestrator) — git-ignored
-```
+1. **Detects and tracks** people in each camera (YOLO26 or RF-DETR, BoT-SORT / ByteTrack / OccluBoost).
+2. **Builds tracklets**: one piece of one person's path in one camera, with quality-gated body samples
+   (pose visibility, detection confidence, size, not cut by the frame edge) and the best faces. A tracklet is cut automatically if the
+   tracker swapped two people who crossed.
+3. **Decides identity once per tracklet** with a self-adaptive gallery (Casao et al., 2023): body appearance
+   (CLIP-ReID), face evidence (ArcFace) used as the strongest signal, and constraints such as "one person cannot
+   be in two places at the same time". Unknown people are clustered into new identities; fragments of one
+   person are merged at the end of a run, reversibly.
+4. **Answers questions**: search by photo (body, face or both), each person's journey and time line, dwell
+   times, a follow-this-person video that cuts from camera to camera, and tracking metrics.
 
-### Pipeline modules
-
-| Module | Notebook | Role |
-|--------|----------|------|
-| **4** | `notebooks/module4_face_association.ipynb` | Video processing: detect, track, embed, resolve identities, retroactive merge, sync to cloud |
-| **5** | `notebooks/module5_search_engine.ipynb` | α-FPS body prototypes + direct face search, query by body/face crop |
-| **6** | `notebooks/module6_dashboard.ipynb` | Gradio dashboard: video processing, search, movement heatmaps, database browser |
-
-**Run order:** Module 4 → Module 5 → Module 6. Module 4 produces `identity_buffer.pkl`, the
-Pinecone indices and the MongoDB documents that Modules 5 & 6 consume.
-
----
-
-## Models & infrastructure
-
-| Component | Model / Service | Purpose |
-|-----------|-----------------|---------|
-| Detection | **RT-DETR-L** | NMS-free person detection |
-| Tracking | **BotSort** | Multi-object tracking (temporary IDs) |
-| Quality gate | **YOLOv11s-Pose** | Skeleton visibility filter |
-| Body Re-ID | **CLIP-ReID** (Market-1501) | 1280-D appearance embedding |
-| Face detect | **InsightFace SCRFD** | Face localization |
-| Face recognition | **InsightFace ArcFace** (`buffalo_l`) | 512-D identity embedding |
-| Vector DB | **Pinecone** | `supermarket-reid` (body) + `supermarket-faces` (face) |
-| Metadata | **MongoDB Atlas** | Persons, sightings, faces, timestamps |
-| CDN | **ImageKit** | Hosts best body/face crops |
-
-Cloud credentials are read from **Kaggle Secrets** at runtime (`UserSecretsClient`), with safe
-placeholder fallbacks — no keys are stored in this repository.
-
----
+Everything is stored locally (SQLite + NumPy + image files) in self-contained *environments*, one per set of
+cameras, so nothing needs a cloud account.
 
 ## Results
 
-Body search stress test (1,317 saved crops):
+**Labelled benchmark**: AI City Challenge 2024, retail scene 075 (synthetic, exact labels), 4 overlapping
+cameras, 2 minutes, 10 people, free Colab T4, `balanced` preset:
 
-| Metric | Value |
-|--------|-------|
-| Accuracy | **85.35%** (1,124 / 1,317) |
-| Wrong ID | 54 crops |
-| Ambiguous (safely rejected) | 74 crops |
-| Unknown (safely rejected) | 9 crops |
-| Avg. query latency | 183.8 ms |
-| Avg. similarity | 0.925 |
+| Identities for 10 people | People split / IDs mixing people | Cross-camera IDF1 | Held-out search Rank-1 | Speed | GPU memory |
+|---|---|---|---|---|---|
+| **10** | **0 / 0** | **88.3%** | **96%** | 34 fps | 1.0 GB |
 
----
+IDF1 is limited by recall of small, distant people, not by identity errors (identity precision 97%).
+How the numbers are measured, and why the earlier version's "85% accuracy" was not a real accuracy:
+[technical report](docs/technical_report.md), [v1 → v2 report](docs/v1_to_v2_report.md).
 
-## Running
+**Real footage** (the showcase above, 8 cameras, 4 people): 4 identities with no person mixed into another,
+3 of 4 men linked across every camera they appear in (the fourth is only visible in two cameras and gets one
+identity there), search 4/4. Processed on a laptop-class GTX 1050 (3 GB) at 8.5 fps with the default `balanced` preset.
 
-These notebooks were developed and run on **Kaggle** (GPU T4 ×2). To reproduce:
+## The app
 
-1. Import `notebooks/module4_face_association.ipynb`, attach a supermarket video dataset and
-   (optionally) a previously saved `identity_buffer.pkl`.
-2. Add Kaggle Secrets: `PINECONE_API_KEY`, `MONGO_URI`, `IMAGEKIT_URL_ENDPOINT`,
-   `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_PRIVATE_KEY`.
-3. Run Module 4, then Module 5 (search), then Module 6 (dashboard).
+| | |
+|---|---|
+| ![Overview](assets/showcase/app_overview.png) | ![Explore a person](assets/showcase/app_explore.png) |
+| ![Search by photo](assets/showcase/app_search.png) | ![Metrics](assets/showcase/app_metrics.png) |
 
-For a local run, replace the `/kaggle/input` and `/kaggle/working` paths in the configuration cells.
+Tabs: **Overview** (people and cameras), **Process** (upload videos or paste video links), **Explore**
+(a person's journey, time line and follow clip), **Search** (by body, face or both), **Cameras**,
+**Metrics** (speed per stage, GPU memory, evaluation) and **Admin** (merge, split, rename, delete,
+environments). Public links require a login.
 
----
+## Run it
+
+### On Colab (free GPU)
+
+Open the [launcher notebook](https://colab.research.google.com/github/AbderrahimZineddineEsi/multi-modal-person-reid/blob/v2/notebooks/colab_demo.ipynb),
+choose a T4 runtime and run all cells. It installs the package, mounts Google Drive (your data persists
+there) and prints a public link and a login for the app. Processing happens from the app.
+[colab_walkthrough.ipynb](notebooks/colab_walkthrough.ipynb) reproduces the benchmark step by step.
+
+### On your own computer
+
+```bash
+git clone -b v2 https://github.com/AbderrahimZineddineEsi/multi-modal-person-reid.git
+cd multi-modal-person-reid
+uv venv -p 3.12 && source .venv/bin/activate
+uv pip install -e ".[models,app,eval]"     # GTX 10xx: install torch from the cu126 index first (pyproject.toml)
+reid app --workspace data/environments      # opens the app at http://127.0.0.1:7860
+```
+
+The models are placed automatically: as much as fits goes on the GPU (detector first, then the body model),
+the rest runs on the CPU, and an out-of-memory error moves a model to the CPU instead of stopping.
+`--preset auto` (the default) picks the preset from the hardware:
+
+| Preset | Models | GPU memory (measured) | Picked by `auto` when |
+|---|---|---|---|
+| `lite` | YOLO26n-pose, ByteTrack, OSNet, buffalo_sc | 0.26 GB | no GPU, or < 2 GB free |
+| `balanced` | YOLO26m-pose, BoT-SORT, CLIP-ReID MSMT17, buffalo_l | 0.87 GB (1.0 GB on a T4 with faces on GPU) | a GPU with ≥ 2 GB free (incl. Colab T4) |
+| `accurate` | RF-DETR-M + YOLO26s-pose, appearance-aware BoT-SORT, CLIP-ReID, buffalo_l | 0.82 GB | on request |
+| `max` | RF-DETR-L + YOLO26m-pose, OccluBoost, CLIP-ReID, antelopev2 | 1.14 GB | on request |
+
+Memory figures are whole-process peaks measured on a GTX 1050 (face models run on CPU on that card).
+
+### Moving between Colab and your computer
+
+Each environment is one folder, so it moves as a unit:
+
+```bash
+reid sync pull --workspace data/environments --remote <Drive folder or rclone remote>   # Colab -> PC
+reid sync push --workspace data/environments --remote <...>                             # PC -> Colab
+reid env export / reid env import                                                       # or as a zip
+```
+
+Sync refuses to overwrite an environment that changed on both sides (`--force` keeps a backup).
+Details: [docs/local_app.md](docs/local_app.md).
+
+### Command line
+
+```bash
+reid process --cameras my_cameras.yaml            # detect, track, identify (camera set: see configs/cameras/)
+reid search --image query.jpg --mode both
+reid journey --gid 3                              # steps + a follow clip
+reid render --mosaic                              # all cameras on one timeline
+reid evaluate --gt gt.csv                         # with ground truth
+reid info                                         # hardware, chosen preset and device plan
+```
 
 ## Documentation
 
-- `docs/technical_report.md` — complete architecture, thresholds, evaluation and design decisions
-- `docs/design_discussion.md` — design review notes (correctness, edge cases, fixes)
-- `reports/ReID_Technical_Report.pdf` / `reports/ReID_Dashboard.pdf` — rendered reports
-- `archive/README.md` — what was superseded and why
+- [Technical report](docs/technical_report.md): architecture, every stage and its parameters, presets,
+  evaluation protocol and results, limitations.
+- [v1 → v2 report](docs/v1_to_v2_report.md): what the first version did, what was wrong and why, what changed,
+  the measured impact, and the papers behind each part.
+- [Using the app on a PC and syncing with Colab](docs/local_app.md).
+- [Future work](docs/future_work.md): live phone / IP cameras, small-person detection, real labelled footage.
 
-## License
+## Based on
 
-Coursework / graduation project. Please contact the author before reuse.
+- M. Casao, A. Azagra, A. C. Murillo, E. Montijano, *A Self-Adaptive Gallery Construction Method for Open-World
+  Person Re-Identification*, Sensors 23(5):2662, 2023: gallery, softmax-ratio test, unknown-data manager.
+- S. Li, L. Sun, Q. Li, *CLIP-ReID*, AAAI 2023 (body features, MSMT17 weights); J. Deng et al., *ArcFace*,
+  CVPR 2019 (InsightFace face models); N. Aharon et al., *BoT-SORT*, 2022; Ultralytics YOLO26; Roboflow RF-DETR.
+- M. Al Muzaddid, W. Beksi, *Person Re-Identification via Generalized Class Prototypes*, arXiv:2510.17043
+  (search prototypes).
+- Own contributions: tracklet-level identity with verify-before-update, face evidence used as must-link with
+  margins, multi-camera constraints, reversible consolidation, appearance-change tracklet splitting.
+
+## Licence and data
+
+Code: AGPL-3.0 (required by Ultralytics and boxmot). Model weights keep their own licences; the InsightFace
+face models are for non-commercial research use. Showcase footage: Pexels License, credits in
+[assets/showcase/CREDITS.md](assets/showcase/CREDITS.md). Benchmark: NVIDIA AI City 2024 / PhysicalAI-SmartSpaces,
+CC-BY-4.0. Face and body descriptors are biometric data: keep them local, and process people only with a
+legal basis and their consent.
+
+*Author: Abderrahim Zineddine. Part of a 4th-year graduation project (the theft-detection and VLM-orchestrator
+parts were team contributions and are not in this repository).*

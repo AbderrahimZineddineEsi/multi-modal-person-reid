@@ -314,7 +314,7 @@ These rules apply **within one run** (one recording session with its own clock).
 
 Neither v1 nor the paper repairs fragmentation: if one person ends up with two gids, both live forever. v2 adds a
 final step at the end of each run (`identity/consolidate.py`): agglomerative clustering (average linkage) of the
-identity centroids, stopping at cosine 0.75, applying face must-links first and never violating a cannot-link (also
+identity centroids, stopping at cosine 0.65 (0.75 until the real-footage showcase showed one man left split), applying face must-links first and never violating a cannot-link (also
 transitively). The merged identity keeps the oldest gid; every relabelling is recorded and reversible. The app
 exposes manual merge, split, rename, re-cluster and delete.
 
@@ -510,7 +510,7 @@ measurement, listed in `docs/dev/changes_log.md`.
   closer to the scene.
 - **Faces not yet validated on real footage.** The AI City people are synthetic with no usable faces; the face path is
   tested with synthetic evidence and sample images. Your phone recordings will be the first real test.
-- **Thresholds calibrated on one scene** (split 0.7, association 0.78, consolidation 0.75). One false split was seen
+- **Thresholds calibrated on one scene** (split 0.7, association 0.78, consolidation 0.65). One false split was seen
   (one person cut in two, re-joined by the identity layer).
 - **Appearance tracking costs about 40% of the speed** on the GTX 1050; it is on only in `accurate` and `max`.
 - **Offline, not live.** Videos are processed as files; live phone/IP cameras are future work
