@@ -43,20 +43,30 @@ def _run(args: argparse.Namespace) -> int:
         if not sep:
             raise SystemExit(f"--set expects key=value, got {item!r}")
         overrides[key.strip()] = yaml.safe_load(value)
-    ws = Path(args.workspace)
+    sub = "smoke" if args.smoke else ""
+    ws = Path(args.workspace) / sub
     opts = BenchOptions(
         workspace=ws,
-        raw_dir=Path(args.raw_dir) if args.raw_dir else ws / ".raw",
+        raw_dir=(Path(args.raw_dir) / sub) if args.raw_dir else ws / ".raw",
         preset=args.preset,
         frame_stride=args.frame_stride,
         overrides=overrides,
         config_path=args.config,
         keep_videos=args.keep_videos,
         eval_2d=not args.no_eval_2d,
+        pack=not args.no_pack,
+        smoke=args.smoke,
+        job=args.job,
     )
-    done = run_scenes(args.scenes, opts)
-    sys.stdout.write(f"benchmark run finished: scenes {', '.join(done)} in {ws}\n")
-    return 0
+    statuses = run_scenes(args.scenes[:1] if args.smoke else args.scenes, opts)
+    if args.smoke:
+        from reid.eval.aicity_projection import finish_smoke
+
+        finish_smoke(ws, args.preset, args.scenes, args.project_gpus, args.num_cores)
+    summary = ", ".join(f"{s} {st}" for s, st in statuses.items())
+    sys.stdout.write(f"benchmark run finished ({summary}) in {ws}\n")
+    # a failed scene is recorded in benchmark.json; only a run where every scene failed is an error
+    return 0 if any(st in ("ok", "skipped") for st in statuses.values()) else 1
 
 
 def _score(args: argparse.Namespace) -> int:
@@ -91,6 +101,15 @@ def _benchmark_args(p: argparse.ArgumentParser) -> None:
     r.add_argument("--keep-videos", choices=("720", "none"), default="720")
     r.add_argument("--frame-stride", type=int, default=2, help="process every n-th frame")
     r.add_argument("--no-eval-2d", action="store_true", help="skip the 2D metrics and retrieval")
+    r.add_argument("--no-pack", action="store_true", help="keep environment folders (no zip)")
+    r.add_argument("--job", default="run", help="job name (progress_<job>.json)")
+    r.add_argument(
+        "--smoke", action="store_true",
+        help="first scene only, 2 cameras, 2 minutes, into WORKSPACE/smoke; then score it and "
+        "print a projection of the full run",
+    )  # fmt: skip
+    r.add_argument("--project-gpus", type=int, default=1, help="GPUs of the run to project")
+    r.add_argument("--num-cores", type=int, default=4, help="cores for the smoke scoring")
     s = cmds.add_parser("score", help="official HOTA evaluation of the processed scenes")
     s.add_argument("--workspace", required=True, metavar="DIR")
     s.add_argument("--preset", default="balanced")

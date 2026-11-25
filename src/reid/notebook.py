@@ -22,14 +22,8 @@ class CommandFailed(RuntimeError):
     """A shell command exited with a non-zero code."""
 
 
-def sh(cmd: str | Sequence[object]) -> None:
-    """Run ``cmd`` and stream its output (progress bars included).
-
-    ``cmd`` is a shell string or an argument list (items are converted with ``str``, so
-    ``Path`` objects can be passed directly). A non-zero exit raises :class:`CommandFailed`,
-    which stops "Run all" at the step that actually failed. Nothing is returned, so a notebook
-    cell ending with ``sh(...)`` does not display a stray value.
-    """
+def _run_streamed(cmd: str | Sequence[object]) -> tuple[int, str]:
+    """Run ``cmd`` streaming its output; returns ``(exit code, shown command)``."""
     shell = isinstance(cmd, str)
     args: str | list[str] = cmd if shell else [str(c) for c in cmd]
     shown = cmd if shell else shlex.join(args)
@@ -49,8 +43,25 @@ def sh(cmd: str | Sequence[object]) -> None:
     code = proc.wait()
     elapsed = time.perf_counter() - t0
     print(f"[{'done' if code == 0 else 'failed'} in {_fmt_duration(elapsed)}]", flush=True)
+    return code, str(shown)
+
+
+def sh(cmd: str | Sequence[object]) -> None:
+    """Run ``cmd`` and stream its output (progress bars included).
+
+    ``cmd`` is a shell string or an argument list (items are converted with ``str``, so
+    ``Path`` objects can be passed directly). A non-zero exit raises :class:`CommandFailed`,
+    which stops "Run all" at the step that actually failed. Nothing is returned, so a notebook
+    cell ending with ``sh(...)`` does not display a stray value.
+    """
+    code, shown = _run_streamed(cmd)
     if code != 0:
         raise CommandFailed(f"exit code {code}: {shown}\nSee the output above for the cause.")
+
+
+def try_sh(cmd: str | Sequence[object]) -> int:
+    """Like :func:`sh` but never raises for a failing command: returns its exit code."""
+    return _run_streamed(cmd)[0]
 
 
 @dataclass
@@ -90,18 +101,29 @@ def _tail(path: Path, n: int) -> list[str]:
 
 
 def run_parallel(
-    jobs: Sequence[Job], poll_s: float = 60.0, tail_lines: int = 2, fail_tail: int = 40
-) -> None:
+    jobs: Sequence[Job],
+    poll_s: float = 60.0,
+    tail_lines: int = 2,
+    fail_tail: int = 40,
+    *,
+    marker: str | None = None,
+    raise_on_failure: bool = True,
+) -> dict[str, int]:
     """Run ``jobs`` at the same time, each writing to its own log; print their progress.
 
-    Every ``poll_s`` seconds the last ``tail_lines`` lines of each log are printed. When a job
-    exits non-zero the others are terminated, the end of its log is printed and
-    :class:`CommandFailed` is raised; otherwise the function returns when all jobs finished.
+    Every ``poll_s`` seconds each running job prints either the last ``tail_lines`` lines of its
+    log or, with ``marker`` (e.g. ``"ETA |"``), only its latest line containing the marker. A
+    failing job never stops the others: all jobs are waited for. When a job ends, the end of its
+    log is printed once. Returns ``{job name: exit code}``; with ``raise_on_failure`` (default) a
+    non-zero code raises :class:`CommandFailed` naming the failed jobs, after all jobs ended.
+    An interrupt (stop button) terminates the jobs still running.
     """
     procs: dict[str, subprocess.Popen] = {}
     logs: dict[str, Path] = {}
     handles = []
+    reported: set[str] = set()
     t0 = time.perf_counter()
+    codes: dict[str, int | None] = {}
     try:
         for job in jobs:
             args = [str(c) for c in job.cmd]
@@ -117,20 +139,22 @@ def run_parallel(
             codes = {n: p.poll() for n, p in procs.items()}
             stamp = _fmt_duration(time.perf_counter() - t0)
             for name in procs:
-                state = "running" if codes[name] is None else f"exit {codes[name]}"
+                code = codes[name]
+                state = "running" if code is None else f"exit {code}"
                 print(f"--- [{stamp}] {name} ({state})", flush=True)
-                for line in _tail(logs[name], tail_lines):
+                if code is None:
+                    lines = _tail(logs[name], 400 if marker else tail_lines)
+                    if marker:
+                        lines = [ln for ln in lines if marker in ln][-1:] or lines[-1:]
+                elif name not in reported:
+                    reported.add(name)
+                    lines = _tail(logs[name], tail_lines if code == 0 else fail_tail)
+                else:
+                    lines = []
+                for line in lines:
                     print(f"    {line[:200]}", flush=True)
-            bad = [n for n, c in codes.items() if c not in (None, 0)]
-            if bad:
-                for line in _tail(logs[bad[0]], fail_tail):
-                    print(f"[{bad[0]}] {line}", flush=True)
-                raise CommandFailed(
-                    f"{bad[0]} exited with code {codes[bad[0]]}; log: {logs[bad[0]]}"
-                )
-            if all(c == 0 for c in codes.values()):
-                print(f"[all {len(jobs)} jobs done in {stamp}]", flush=True)
-                return
+            if all(c is not None for c in codes.values()):
+                break
     finally:
         for p in procs.values():
             if p.poll() is None:
@@ -142,6 +166,14 @@ def run_parallel(
                 p.kill()
         for fh in handles:
             fh.close()
+    result = {n: int(c) for n, c in codes.items() if c is not None}
+    failed = [n for n, c in result.items() if c != 0]
+    print(f"[{len(jobs)} jobs ended in {stamp}; failed: {', '.join(failed) or 'none'}]", flush=True)
+    if failed and raise_on_failure:
+        raise CommandFailed(
+            "; ".join(f"{n} exited with code {result[n]} (log: {logs[n]})" for n in failed)
+        )
+    return result
 
 
 def has_finished_run(data_dir: str | os.PathLike[str]) -> bool:

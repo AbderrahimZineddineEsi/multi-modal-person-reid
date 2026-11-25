@@ -77,7 +77,10 @@ for reasonable speed; do not run them just to check something that unit tests co
   run` per scene = fetch (full length, no re-encode, calibration -> `CameraSpec.homography`), process at 720p, our 2D
   metrics, `aicity_export.export_predictions` (official 9-column format, floor positions through the stored
   homography), 720p copies; `score` runs NVIDIA's evaluator (downloaded at run time, never vendored, NVIDIA licence).
-  Homographies are configured in SOURCE pixels and stored in processed pixels (`geometry.scale_homography`).
+  A failed scene is recorded in `benchmark.json` and skipped (`aicity_bench.run_scenes` never raises per scene);
+  successful scenes are zipped into `envs/` with small results kept in `results/` (`aicity_pack.py`, `--no-pack`
+  keeps folders); `--smoke` runs 2 cameras x 2 minutes and prints a `PROJECTION |` line (`aicity_projection.py`);
+  `aicity_progress.py` logs `ETA |` lines. Homographies are configured in SOURCE pixels and stored in processed pixels (`geometry.scale_homography`).
 - **Search/analytics/viz**: `search.py` (body, face, both; MATCH / AMBIGUOUS / UNKNOWN), `analytics.py` (pure
   functions over the DB), `viz/` (render, mosaic, follow-person, timeline, heatmaps), `eval/` (MOT metrics,
   held-out retrieval).

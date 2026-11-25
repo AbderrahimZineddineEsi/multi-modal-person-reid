@@ -14,8 +14,8 @@ from reid.cli import build_parser
 from reid.datasets import aicity24 as ac
 from reid.datasets.gt import read_gt, write_gt
 from reid.eval import aicity_official as off
-from reid.eval.aicity_bench import is_complete
 from reid.eval.aicity_bench_io import read_benchmark, scale_gt_csv, update_benchmark
+from reid.eval.aicity_pack import is_complete
 from reid.eval.aicity_score import _concat, collect_scenes, results_markdown
 from reid.notebook import CommandFailed, Job, run_parallel
 from reid.storage import db
@@ -96,24 +96,37 @@ def test_collect_and_concat(tmp_path: Path):
         tmp_path, "balanced"
     )
     assert [s.scene for s in scenes] == ["075", "078"] and scenes[0].cameras == [700, 701]
-    out = _concat([s.env / "aicity" / "predictions.txt" for s in scenes], tmp_path / "all.txt")
+    out = _concat([s.files_dir / "predictions.txt" for s in scenes], tmp_path / "all.txt")
     assert out.read_text().count("\n") == 2  # a missing final newline does not glue two rows
     assert collect_scenes(tmp_path, "max") == []
 
 
 def test_is_complete_requires_all_artifacts(tmp_path: Path):
-    env = tmp_path / "e"
-    assert not is_complete(env)
+    name = "e"
+    env = tmp_path / name
+    assert not is_complete(tmp_path, name)
     conn = db.connect(env / "reid.db")
     rid = db.create_run(conn, "{}")
     db.set_run_status(conn, rid, "done")
     conn.close()
-    assert not is_complete(env)
+    assert not is_complete(tmp_path, name)
     (env / "aicity").mkdir()
     (env / "aicity" / "predictions.txt").write_text("")
-    assert not is_complete(env)  # gt.csv is written last
+    assert not is_complete(tmp_path, name)  # gt.csv is written last
     (env / "gt.csv").write_text("")
-    assert is_complete(env)
+    assert is_complete(tmp_path, name)
+
+
+def test_packed_complete_needs_zip_and_results(tmp_path: Path):
+    from reid.eval.aicity_pack import packed_complete, results_path, zip_path
+
+    assert not packed_complete(tmp_path, "e")
+    zip_path(tmp_path, "e").parent.mkdir(parents=True)
+    zip_path(tmp_path, "e").write_bytes(b"z")
+    assert not packed_complete(tmp_path, "e")  # results folder missing
+    results_path(tmp_path, "e").mkdir(parents=True)
+    (results_path(tmp_path, "e") / "predictions.txt").write_text("")
+    assert packed_complete(tmp_path, "e") and is_complete(tmp_path, "e")
 
 
 def test_benchmark_json_merges(tmp_path: Path):
@@ -233,20 +246,44 @@ def test_trim_video_command_flags(monkeypatch, tmp_path: Path):
     assert cmd[cmd.index("-crf") + 1] == "28" and "-t" not in cmd
 
 
-def test_run_parallel_streams_and_fails(tmp_path: Path, capsys):
+def test_run_parallel_waits_for_all_and_reports(tmp_path: Path, capsys):
     ok = [sys.executable, "-c", "print('alpha progress')"]
-    run_parallel(
+    codes = run_parallel(
         [Job("a", ok, tmp_path / "a.log"), Job("b", ok, tmp_path / "b.log", {"X": "1"})],
         poll_s=0.3,
     )
     out = capsys.readouterr().out
-    assert "alpha progress" in out and "[all 2 jobs done" in out
-    bad = [sys.executable, "-c", "import sys, time; print('boom'); sys.exit(4)"]
-    slow = [sys.executable, "-c", "import time; time.sleep(60)"]
-    with pytest.raises(CommandFailed, match="exit.*4|code 4"):
-        run_parallel([Job("slow", slow, tmp_path / "s.log"), Job("bad", bad, tmp_path / "x.log")],
-                     poll_s=0.5)  # fmt: skip
-    assert "boom" in capsys.readouterr().out  # the failing job's log is shown
+    assert codes == {"a": 0, "b": 0} and "alpha progress" in out and "failed: none" in out
+    # a failing job does not stop the slow one: both are waited for
+    bad = [sys.executable, "-c", "import sys; print('boom'); sys.exit(4)"]
+    slow = [sys.executable, "-c", "import time; time.sleep(1.5); print('slow finished')"]
+    jobs = [Job("slow", slow, tmp_path / "s.log"), Job("bad", bad, tmp_path / "x.log")]
+    with pytest.raises(CommandFailed, match="bad exited with code 4"):
+        run_parallel(jobs, poll_s=0.5)
+    assert "slow finished" in (tmp_path / "s.log").read_text()  # it was not terminated
+    assert "boom" in capsys.readouterr().out  # the failing job's log is shown once
+    codes = run_parallel(jobs, poll_s=0.5, raise_on_failure=False)  # notebook mode: no raise
+    assert codes == {"slow": 0, "bad": 4}
+
+
+def test_run_parallel_prints_only_the_marker_line(tmp_path: Path, capsys):
+    code = (
+        "import time; print('noise 1'); print('ETA | scene 075 | old'); "
+        "print('ETA | scene 075 | latest'); print('noise 2'); time.sleep(1.2)"
+    )
+    run_parallel(
+        [Job("g", [sys.executable, "-c", code], tmp_path / "g.log")], poll_s=0.6, marker="ETA |"
+    )
+    out = capsys.readouterr().out
+    assert "    ETA | scene 075 | latest" in out
+    assert "    ETA | scene 075 | old" not in out and "    noise 1" not in out
+
+
+def test_try_sh_returns_code():
+    from reid.notebook import try_sh
+
+    assert try_sh([sys.executable, "-c", "pass"]) == 0
+    assert try_sh([sys.executable, "-c", "import sys; sys.exit(3)"]) == 3
 
 
 def test_run_parallel_passes_environment(tmp_path: Path):
@@ -274,6 +311,7 @@ def test_run_scene_flow_resume_and_outputs(tmp_path: Path, monkeypatch):
     import reid.datasets.aicity24 as dsmod
     from reid.config import load_config
     from reid.eval import aicity_bench as bench
+    from reid.eval import aicity_steps as steps
     from reid.geometry import invert_homography, scale_homography
     from reid.types import CameraInfo, Tracklet, TrackPoint
 
@@ -293,7 +331,7 @@ def test_run_scene_flow_resume_and_outputs(tmp_path: Path, monkeypatch):
                            "y1": [150.0], "x2": [600.0], "y2": [450.0]})  # fmt: skip
         write_gt(gt, out / "gt.csv")
 
-    def fake_process(opts, scene_dir, env):
+    def fake_process(opts, scene_dir, env):  # noqa: ARG001
         calls["process"] += 1
         cfg = load_config(None, {"paths.data_dir": str(env), "runtime.frame_stride": 2})
         env.mkdir(parents=True, exist_ok=True)
@@ -321,14 +359,16 @@ def test_run_scene_flow_resume_and_outputs(tmp_path: Path, monkeypatch):
         return {}
 
     monkeypatch.setattr(dsmod, "fetch_aicity24", fake_fetch)
-    monkeypatch.setattr(bench, "_process", fake_process)
-    monkeypatch.setattr(bench, "_evaluate_2d", fake_eval)
-    monkeypatch.setattr(bench, "encode_videos", fake_encode)
-    opts = bench.BenchOptions(workspace=tmp_path / "ws", raw_dir=tmp_path / "raw", preset="lite")
+    monkeypatch.setattr(bench, "process_scene", fake_process)
+    monkeypatch.setattr(bench, "evaluate_2d", fake_eval)
+    monkeypatch.setattr(steps, "encode_videos", fake_encode)
+    opts = bench.BenchOptions(
+        workspace=tmp_path / "ws", raw_dir=tmp_path / "raw", preset="lite", pack=False
+    )
     with ThreadPoolExecutor(max_workers=1) as pool:
-        fut = bench.run_scene("075", opts, pool)
-        assert fut is not None
-        fut.result()
+        status, fut = bench.run_scene("075", opts, pool)
+        assert status == "queued" and fut is not None
+        assert fut.result() == "ok"
     env = tmp_path / "ws" / "aicity24_075_lite"
     pred = (env / "aicity" / "predictions.txt").read_text().split()
     assert pred[:3] == ["700", "5", "0"] and len(pred) == 27  # 3 rows of 9
@@ -344,8 +384,8 @@ def test_run_scene_flow_resume_and_outputs(tmp_path: Path, monkeypatch):
     run = read_benchmark(tmp_path / "ws")["runs"]["aicity24_075_lite"]
     assert run["fps"] == 33.0 and run["export"]["rows"] == 3 and "videos_720p_s" in run
     assert run["metrics_2d"]["idf1"] == 0.9 and run["timings_s"]["export"] >= 0
-    assert is_complete(env)
-    assert bench.run_scene("075", opts) is None  # resume: nothing is fetched or processed again
+    assert is_complete(tmp_path / "ws", env.name) and run["status"] == "ok"
+    assert bench.run_scene("075", opts) == ("skipped", None)  # nothing fetched or processed again
     assert calls == {"fetch": 1, "process": 1}
 
 

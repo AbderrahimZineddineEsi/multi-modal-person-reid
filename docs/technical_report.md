@@ -407,6 +407,28 @@ identity per frame: `camera id frame x y w h xworld yworld`.
   086 (test split, public ground truth). The published 2024 leaderboard HOTA values (1st 71.94, 2nd 67.22, 3rd
   60.93; team papers, CVPRW 2024; online entries received a 10% bonus) are on all 30 test scenes, so they are
   context, not a like-for-like comparison.
+- **Crash safety.** A long run must not lose finished work. A failure in any step of one scene (fetch, process, 2D
+  evaluation, export, 720p encode, pack) is logged with its traceback in that scene's `logs/process.log`, recorded in
+  `benchmark.json` as `status: failed` with `step` and `error`, its raw folder is deleted, and the next scene goes
+  on. The command exits non-zero only if every scene failed. In the notebook a failing GPU process never stops the
+  other one, no cell raises, scoring uses the scenes that succeeded, and the last cell prints an ok/failed summary.
+  Runs are resumable per step (a finished run, `eval/*.json`, `aicity/predictions.txt`, the zip).
+- **Packing.** Kaggle limits the number of output files, so after a scene succeeds its environment is zipped with
+  `export_env` (database, vectors, crops, 720p videos, evaluation, logs) into `envs/<env>.zip` and the folder is
+  deleted. The small files scoring needs stay in `results/<env>/`. `reid env import envs/<env>.zip --workspace W`
+  restores a usable environment (tested round trip on a synthetic environment). `--no-pack` keeps the folders.
+- **Remaining-time estimate.** Each `run` process logs `ETA | scene 075 camera 5/16 | 38% of this job | 31.2 fps
+  (processed) | ~1 h 52 min left | ends ~14:40 UTC` every 60 s, at each camera end and at each step change, and writes
+  `progress_<job>.json`. Work is source frames x cameras over the job's scenes (before a scene is fetched:
+  23,994 frames x its camera count); speed is measured on the processing steps only; the remaining time adds the
+  non-GPU steps (fetch, 2D evaluation, export) measured so far for the scenes still to run and one 720p encode for the
+  tail. It is an extrapolation from what has been measured.
+- **Smoke run.** `--smoke` runs the first scene with 2 cameras and the first 2 minutes through every step (including
+  packing and official scoring) into `WORKSPACE/smoke`, then logs `PROJECTION | 4 scenes, 62 cameras, 2 GPUs: ~...`:
+  the measured seconds per source camera-minute of each step scaled to the real scene list split over N GPUs, plus
+  the model-load time per scene. It is an extrapolation from a 2-minute sample: costs that grow faster than linearly
+  (identity consolidation, the 2D evaluation over 16 cameras) and CPU contention between the GPU jobs are not
+  modelled. Its accuracy has not been checked against a full run yet.
 - **Results: not measured yet.** No number is claimed here until the Kaggle notebook has been run.
 
 ## 8. Limitations

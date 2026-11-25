@@ -143,3 +143,20 @@ def repoint_videos(env: str | Path, camera_ids: Sequence[str]) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def summary_text(workspace: str | Path, scenes: Sequence[str], preset: str) -> str:
+    """One line per scene (ok, FAILED with step and error, or not run), from ``benchmark.json``."""
+    runs = read_benchmark(workspace).get("runs", {})
+    lines = []
+    for scene in scenes:
+        r = runs.get(f"aicity24_{scene}_{preset}", {})
+        status = r.get("status")
+        if status == "ok":
+            fps = r.get("fps")
+            lines.append(f"scene {scene}: ok" + (f" ({fps:.1f} fps processed)" if fps else ""))
+        elif status == "failed":
+            lines.append(f"scene {scene}: FAILED in step {r.get('step')}: {r.get('error')}")
+        else:
+            lines.append(f"scene {scene}: not run or not finished")
+    return "\n".join(lines)

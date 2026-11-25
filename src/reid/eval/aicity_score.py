@@ -1,7 +1,8 @@
 """Score the benchmark environments of a workspace with the official AI City 2024 evaluator.
 
-Collects every ``aicity24_<scene>_<preset>`` environment, concatenates their ``predictions.txt``
-and official ``gt_official.txt``, runs NVIDIA's evaluator overall and once per scene, and writes
+Collects every ``aicity24_<scene>_<preset>`` scene (packed or not), concatenates their
+``predictions.txt`` and official ``gt_official.txt``, runs NVIDIA's evaluator overall and once
+per scene, and writes
 ``official_<preset>.json`` plus a short ``RESULTS_<preset>.md`` into the workspace.
 """
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +25,7 @@ from reid.eval.aicity_official import (
     run_official_per_scene,
     write_scene_map,
 )
+from reid.eval.aicity_pack import RESULTS_DIR, scene_files_dir
 
 log = logging.getLogger(__name__)
 
@@ -31,25 +34,34 @@ METRICS = ("HOTA", "DetA", "AssA", "LocA")
 
 @dataclass
 class SceneInput:
-    """One scored environment."""
+    """One scored scene: its files folder (``results/<env>`` or ``<env>/aicity``)."""
 
     scene: str
-    env: Path
+    name: str
+    files_dir: Path
     cameras: list[int]
 
 
 def collect_scenes(workspace: str | Path, preset: str) -> list[SceneInput]:
-    """Environments ``aicity24_*_<preset>`` with exported predictions, sorted by scene."""
+    """Scenes ``aicity24_*_<preset>`` with exported predictions, sorted by scene.
+
+    Looks in ``results/`` (packed scenes) and in unpacked environment folders. Scenes without
+    predictions (failed or unfinished) are skipped and said so.
+    """
+    ws = Path(workspace)
+    pattern = f"aicity24_*_{preset}"
+    names = {p.name for p in (ws / RESULTS_DIR).glob(pattern)} | {p.name for p in ws.glob(pattern)}
     out = []
-    for env in sorted(Path(workspace).glob(f"aicity24_*_{preset}")):
-        meta = env / "aicity" / "meta.json"
-        if not (env / "aicity" / "predictions.txt").exists() or not meta.exists():
-            log.warning("%s has no exported predictions: not scored", env.name)
+    for name in sorted(names):
+        d = scene_files_dir(ws, name)
+        if d is None or not (d / "meta.json").exists():
+            msg = f"{name}: no exported predictions (scene failed or not finished), not scored"
+            log.warning(msg)
+            print(msg, file=sys.stderr, flush=True)
             continue
-        m = json.loads(meta.read_text(encoding="utf-8"))
-        out.append(
-            SceneInput(str(m["scene"]), env, sorted(int(c) for c in m["camera_numbers"].values()))
-        )
+        m = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        cams = sorted(int(c) for c in m["camera_numbers"].values())
+        out.append(SceneInput(str(m["scene"]), name, d, cams))
     return sorted(out, key=lambda s: s.scene)
 
 
@@ -84,8 +96,8 @@ def score_workspace(
     if not scenes:
         raise FileNotFoundError(f"no aicity24_*_{preset} environment with predictions in {ws}")
     work = ws / ".official" / preset
-    pred = _concat([s.env / "aicity" / "predictions.txt" for s in scenes], work / "pred.txt")
-    gt = _concat([s.env / "aicity" / "gt_official.txt" for s in scenes], work / "gt.txt")
+    pred = _concat([s.files_dir / "predictions.txt" for s in scenes], work / "pred.txt")
+    gt = _concat([s.files_dir / "gt_official.txt" for s in scenes], work / "gt.txt")
     names = {f"scene_{s.scene}": s.cameras for s in scenes}
     ev = Path(eval_dir) if eval_dir else fetch_official_eval(ws / ".official" / "evaluator")
     t0 = time.perf_counter()
@@ -111,7 +123,7 @@ def score_workspace(
         "overall": overall,
         "evaluator_seconds": round(time.perf_counter() - t0, 1),
         "leaderboard_2024": LEADERBOARD_2024,
-        "runs": {s.scene: bench.get(s.env.name, {}) for s in scenes},
+        "runs": {s.scene: bench.get(s.name, {}) for s in scenes},
     }
     (ws / f"official_{preset}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     (ws / f"RESULTS_{preset}.md").write_text(results_markdown(result), encoding="utf-8")

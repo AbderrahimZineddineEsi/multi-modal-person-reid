@@ -116,12 +116,17 @@ Details: [docs/local_app.md](docs/local_app.md).
 [notebooks/kaggle_aicity_benchmark.ipynb](notebooks/kaggle_aicity_benchmark.ipynb) runs the `balanced` preset on four
 full 16-camera test scenes of the AI City 2024 Track 1 dataset, scores them with NVIDIA's official HOTA evaluator and
 saves databases, crops, 720p videos, predictions, scores and logs. Upload it to Kaggle, choose **GPU T4 x2** and
-**Internet on**, and use *Save Version, Save & Run All (Commit)*. The same steps from a terminal:
+**Internet on**. Run it first with `SMOKE = True` (about 10 to 15 minutes: one scene, 2 cameras, 2 minutes; it
+prints a projection of the full run), then set `SMOKE = False` and use *Save Version, Save & Run All (Commit)*.
+A scene that fails is recorded and skipped, each successful scene is packed into one zip, and every cell ends
+without an error so the output is always saved. The same steps from a terminal:
 
 ```bash
-reid benchmark aicity24 run --scenes 075,078,082,086 --preset balanced --workspace data/bench
-reid benchmark aicity24 score --workspace data/bench --preset balanced   # writes RESULTS_balanced.md
-reid app --workspace data/bench
+reid benchmark aicity24 run --scenes 075 --smoke --workspace data/bench             # 10-15 min, prints PROJECTION
+reid benchmark aicity24 run --scenes 075,078,082,086 --workspace data/bench --no-pack   # prints ETA lines
+reid benchmark aicity24 score --workspace data/bench --preset balanced              # writes RESULTS_balanced.md
+reid app --workspace data/bench                                                     # (without --no-pack:
+                                                                                    #  reid env import envs/<env>.zip first)
 ```
 
 Results are not published yet: they will be added here once the notebook has been run.
