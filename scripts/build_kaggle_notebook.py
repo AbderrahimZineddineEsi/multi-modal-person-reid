@@ -175,7 +175,9 @@ import json
 import subprocess
 from pathlib import Path
 
-from reid.eval.aicity_bench_io import summary_text
+# Only the standard library and reid.notebook (stdlib only) run in this kernel: the install
+# upgraded numpy on disk while the kernel still holds the old one, so anything that imports
+# numpy here fails. Everything else runs as `reid` commands (fresh processes).
 from reid.notebook import Job, balance, run_parallel, sh, try_sh
 
 RUN_WS = WORKSPACE + ("/smoke" if SMOKE else "")  # where this run writes its results
@@ -203,7 +205,9 @@ except Exception as exc:  # never end the notebook here: /kaggle/working must be
     print(f"The run loop stopped with {exc!r}; whatever finished is kept.")
     codes = {}
 print("\\nProcess exit codes:", codes or "unknown")
-print(summary_text(RUN_WS, SCENES[:1] if SMOKE else SCENES, PRESET))
+SUMMARY = ["reid", "benchmark", "aicity24", "summary", "--workspace", RUN_WS, "--preset", PRESET,
+           "--scenes", ",".join(SCENES[:1] if SMOKE else SCENES)]  # fmt: skip
+try_sh(SUMMARY)
 """)
 
 md("""
@@ -237,16 +241,10 @@ skipped. (In smoke mode the smoke command already scored its scene.)
 code("""
 from IPython.display import Markdown, display
 
-from reid.eval.aicity_score import collect_scenes
-
 try:
-    scored = [] if SMOKE else collect_scenes(WORKSPACE, PRESET)
     if SMOKE:
         print("SMOKE is True: the smoke run scored its own scene (see smoke/RESULTS_*.md).")
-    elif not scored:
-        print("No scene finished with predictions: nothing to score.")
-    else:
-        print("Scoring scenes:", [s.scene for s in scored])
+    else:  # `score` skips scenes without predictions and fails cleanly if there are none
         code_ = try_sh(["reid", "benchmark", "aicity24", "score", "--workspace", WORKSPACE,
                         "--preset", PRESET, "--num-cores", os.cpu_count() or 4])  # fmt: skip
         res = Path(WORKSPACE, f"RESULTS_{PRESET}.md")
@@ -289,7 +287,7 @@ md("""
 """)
 code("""
 try:
-    print(summary_text(WORKSPACE if not SMOKE else RUN_WS, SCENES[:1] if SMOKE else SCENES, PRESET))
+    try_sh(SUMMARY)
     sh(f"du -sh {WORKSPACE}; find {WORKSPACE} -type f | wc -l; ls {WORKSPACE}")
 except Exception as exc:  # noqa: BLE001 - the last cell must not fail
     print(f"Summary unavailable: {exc!r}")

@@ -40,3 +40,30 @@ def test_has_finished_run(tmp_path: Path):
     db.set_run_status(conn, run_id, "done")
     conn.close()
     assert has_finished_run(tmp_path)
+
+
+def test_notebook_kernel_never_imports_numpy():
+    """Kaggle/Colab installs upgrade numpy on disk while the kernel already holds the old one, so
+    the notebook kernel may only import the standard library, IPython and ``reid.notebook``
+    (which itself must not pull in numpy); everything else runs as ``reid`` commands."""
+    import ast
+    import json
+    import subprocess
+
+    code = "import sys, reid.notebook; sys.exit('numpy' in sys.modules or 'pandas' in sys.modules)"
+    assert subprocess.run([sys.executable, "-c", code]).returncode == 0
+    allowed = {"reid.notebook", "IPython.display"}
+    nb = Path(__file__).parents[1] / "notebooks" / "kaggle_aicity_benchmark.ipynb"
+    for cell in json.loads(nb.read_text(encoding="utf-8"))["cells"]:
+        src = "".join(cell["source"])
+        if cell["cell_type"] != "code" or src.lstrip().startswith("%%"):
+            continue
+        for node in ast.walk(ast.parse(src)):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            for name in names:
+                top = name.split(".")[0]
+                assert name in allowed or top in sys.stdlib_module_names, name

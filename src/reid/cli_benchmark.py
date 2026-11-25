@@ -22,7 +22,7 @@ def _scenes(value: str) -> list[str]:
 
 
 def cmd_benchmark(args: argparse.Namespace) -> int:
-    """Dispatch ``reid benchmark aicity24 run|score``."""
+    """Dispatch ``reid benchmark aicity24 run|score|summary``."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -31,7 +31,17 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
     )
     if args.bench_cmd == "run":
         return _run(args)
+    if args.bench_cmd == "summary":
+        return _summary(args)
     return _score(args)
+
+
+def _summary(args: argparse.Namespace) -> int:
+    """Print one line per scene from ``benchmark.json`` (lets a notebook avoid importing numpy)."""
+    from reid.eval.aicity_bench_io import summary_text
+
+    sys.stdout.write(summary_text(args.workspace, args.scenes, args.preset) + "\n")
+    return 0
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -115,6 +125,10 @@ def _benchmark_args(p: argparse.ArgumentParser) -> None:
     s.add_argument("--preset", default="balanced")
     s.add_argument("--num-cores", type=int, default=4, help="cores for the official evaluator")
     s.add_argument("--no-per-scene", action="store_true", help="only the overall run")
+    m = cmds.add_parser("summary", help="ok / failed per scene, from benchmark.json")
+    m.add_argument("--workspace", required=True, metavar="DIR")
+    m.add_argument("--scenes", required=True, type=_scenes, help="comma list, e.g. 075,078")
+    m.add_argument("--preset", default="balanced")
 
 
 cmd_benchmark.add_arguments = _benchmark_args  # type: ignore[attr-defined]
