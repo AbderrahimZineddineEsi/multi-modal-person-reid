@@ -1,3 +1,5 @@
+> **Historical planning document** (written before the implementation). Some details changed later (e.g. appearance tracking in `accurate`/`max`, the Admin tab visible by default, `max` uses CLIP-ReID). The current design is in `docs/technical_report.md`; every change is in `docs/dev/changes_log.md`.
+
 # v2 Rewrite Plan
 
 This document is the single source of truth for implementation agents. Read this plan and `CLAUDE.md` first. Use `docs/dev/v1_review.md` for the v1 algorithm details (section numbers are referenced below, e.g. §1.12) and `docs/dev/research.md` for the model and dataset facts. Do **not** reopen the v1 notebooks unless the review is missing something.

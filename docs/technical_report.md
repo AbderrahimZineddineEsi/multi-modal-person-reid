@@ -1,667 +1,427 @@
-# 🛒 Multi-Modal Person Re-ID & Face Association Pipeline
-## Complete Technical Report
+# Technical report: multi-camera person Re-ID and face association (v2)
 
-> **Project:** Real-time person re-identification and face association for retail analytics
-> **Environment:** Kaggle (2× NVIDIA Tesla T4 GPUs, 16 GB VRAM each)
-> **Language:** Python 3.12 | **Framework:** PyTorch
+This is the technical description of the current system (package `reid`, version 0.2.0, branch `v2`).
+It covers what the code does, which parameters control it, which papers it follows, what was measured,
+and what is still missing. The history (what v1 did, what was wrong, what changed) is in
+[v1_to_v2_report.md](v1_to_v2_report.md) and is not repeated here. Every change with its measurements
+is in [dev/changes_log.md](dev/changes_log.md). Defaults quoted below come from
+[`configs/default.yaml`](../configs/default.yaml) and [`configs/presets/`](../configs/presets).
 
----
+## 1. System overview
 
-## Table of Contents
-1. [System Overview](#1-system-overview)
-2. [AI Models & Specifications](#2-ai-models--specifications)
-3. [Cloud Infrastructure](#3-cloud-infrastructure)
-4. [Configuration & Thresholds](#4-configuration--thresholds)
-5. [Module 4: Video Processing Pipeline](#5-module-4-video-processing-pipeline)
-6. [Module 5: Search Engine](#6-module-5-search-engine)
-   - [6.3 Movement Heatmaps](#63-movement-heatmaps-person-search)
-7. [Module 6: Interactive Dashboard](#7-module-6-interactive-dashboard)
-8. [Evaluation Results](#8-evaluation-results)
-9. [Known Limitations & Design Decisions](#9-known-limitations--design-decisions)
+Input: one or more camera videos (files). Output: a set of persistent identities (`gid`), each with the
+tracklets, crops, faces and journeys that belong to it, plus search, analytics, rendered videos and a web app.
+Everything is stored locally in one folder (an "environment"). There is no cloud service.
 
----
-
-## 1. System Overview
-
-### 1.1 What This System Does
-
-This pipeline watches security camera footage from a supermarket and:
-1. **Detects** every person in every frame
-2. **Tracks** them as they move through the scene (temporary ID)
-3. **Identifies** them by matching their body appearance and/or face against a persistent database (permanent global ID)
-4. **Records** their visit: when they entered, how long they stayed, best body/face photo
-5. **Enables search**: given a photo, find who this person is in the database
-
-### 1.2 Two Modalities Working Together
-
-| Modality | Strength | Weakness | Role |
-|----------|----------|----------|------|
-| **Body Re-ID** | Works at any distance/angle, doesn't need face visibility | Fails with similar clothing (e.g. store uniforms) | Primary identification |
-| **Face Recognition** | Extremely accurate, identity ground truth | Requires close-up, front-facing, well-lit face | Override & correction |
-
-**Key insight:** Face recognition acts as **ground truth**. When a face is recognized, it can *retroactively correct* a wrong body-based assignment (Identity Merge).
-
-### 1.3 Architecture Diagram
-
-```
-Video Frame
-    │
-    ├──► RT-DETR (Person Detection)
-    │        │
-    │        ▼
-    │    BotSort (Multi-Object Tracking) ──► track_id (temporary)
-    │        │
-    │        ▼
-    │    YOLOv8-Pose (Quality Gate) ──► reject bad crops
-    │        │
-    │        ▼
-    │    CLIP-ReID (Body Embedding) ──► 1280-D vector
-    │        │
-    │        ▼
-    │    ┌─────────────────────────────────────────────┐
-    │    │         IDENTITY RESOLUTION ENGINE          │
-    │    │                                             │
-    │    │  Gallery Match ──► Softmax Confidence        │
-    │    │  Face Override ──► Pinecone Face Lookup      │
-    │    │  Unknown Pool ──► DBSCAN Clustering          │
-    │    │                                             │
-    │    │  Output: global_id (permanent)              │
-    │    └─────────────────────────────────────────────┘
-    │
-    └──► InsightFace (Face Detection + Embedding)
-              │
-              ▼
-         Face-Body Spatial Pairing ──► 512-D face vector
+```mermaid
+flowchart LR
+    V[camera videos] --> D["detect (+ pose)<br/>YOLO26-pose or RF-DETR"]
+    D --> T["track per camera<br/>BoT-SORT / ByteTrack / OccluBoost"]
+    T --> B["tracklet builder<br/>gates, sampling,<br/>split on appearance"]
+    B --> E["identity engine<br/>face evidence, Casao gallery test,<br/>UDM, constraints"]
+    E --> C["consolidation<br/>constrained clustering"]
+    C --> P["prototypes<br/>K = 3 per identity"]
+    P --> S["search / analytics / render / app"]
+    B -. samples, faces .-> E
+    DB[(SQLite + vectors + crops)] <--> E
+    DB <--> S
 ```
 
----
-
-## 2. AI Models & Specifications
-
-### 2.1 RT-DETR-L (Person Detection)
-
-| Property | Value |
-|----------|-------|
-| **Full Name** | Real-Time DEtection TRansformer (Large) |
-| **Architecture** | CNN backbone (HGNet-v2) + Efficient Hybrid Encoder + Transformer decoder |
-| **Parameters** | ~32–36 million |
-| **FLOPs** | ~100–140 GFLOPs |
-| **Model Size** | ~130 MB |
-| **Input Resolution** | 640×640 |
-| **VRAM** | ~2–4 GB (inference) |
-| **Key Feature** | **NMS-free** — no post-processing bottleneck, consistent latency |
-| **GPU Assignment** | `cuda:0` |
-
-**Why RT-DETR over YOLO for detection?** RT-DETR's transformer decoder eliminates Non-Maximum Suppression (NMS), which is a serial bottleneck. This gives more predictable latency, critical for real-time tracking.
-
-We filter for `classes=[0]` (COCO class 0 = person), so only humans are detected.
-
-### 2.2 YOLOv11s-Pose (Skeleton Quality Gate)
-
-| Property | Value |
-|----------|-------|
-| **Architecture** | YOLOv11 Small with Pose head |
-| **Keypoints** | 17 (COCO format: nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles) |
-| **Input** | Cropped body image |
-| **GPU Assignment** | `cuda:1` |
-
-**Purpose:** This model does NOT contribute to identification. It serves purely as a **quality gate**. For each body crop, it estimates which of the 17 skeleton keypoints are visible. The system calculates:
-
-```
-visible_ratio = (keypoints with confidence > 0.3) / 17
-```
-
-If `visible_ratio < 0.5` (less than 50% of skeleton visible), the crop is **rejected**. This prevents garbage data (e.g., a partially visible arm, a blurry silhouette) from entering the gallery and corrupting identity embeddings.
-
-### 2.3 BotSort (Multi-Object Tracker)
-
-| Property | Value |
-|----------|-------|
-| **Full Name** | Bag of Tricks for SORT |
-| **Type** | Tracking-by-detection |
-| **ReID Backbone** | OSNet_x0_25 (MSMT17 pretrained) |
-| **Association** | IoU + ReID appearance fusion |
-
-**How BotSort works:**
-1. Receives person detections from RT-DETR each frame
-2. Uses a **Kalman Filter** to predict where existing tracks should be
-3. **Camera Motion Compensation** adjusts predictions if the camera moves
-4. Computes a **cost matrix** combining:
-   - **IoU** (spatial overlap between predicted and detected boxes)
-   - **Appearance similarity** (lightweight ReID features via OSNet)
-5. Uses the Hungarian algorithm to match detections to tracks
-6. Assigns a `track_id` that persists as long as the person is continuously visible
-
-> ⚠️ **Important:** `track_id` is **temporary** — it only lives while the person is in view. The moment they leave and return, they get a new `track_id`. Our system maps `track_id → global_id` (permanent) using the Identity Resolution Engine.
-
-### 2.4 CLIP-ReID (Body Re-Identification)
-
-| Property | Value |
-|----------|-------|
-| **Architecture** | CLIP ViT-B/16 fine-tuned for ReID |
-| **Training Dataset** | Market-1501 |
-| **Parameters** | ~86 million (frozen CLIP backbone + learnable tokens) |
-| **Embedding Dimension** | **1280-D** (our Pinecone index dimension) |
-| **Training Strategy** | 2-stage: (1) optimize learnable text tokens, (2) fine-tune visual encoder |
-| **GPU Assignment** | `cuda:1` |
-
-**What it does:** Takes a cropped body image → outputs a 1280-dimensional vector that encodes the person's appearance (clothing color, texture, body shape, accessories). Two crops of the same person should produce vectors with high cosine similarity (>0.85).
-
-**Output normalization:** All embeddings are L2-normalized: `F.normalize(emb, p=2, dim=1)`, so cosine similarity = dot product.
-
-### 2.5 InsightFace — SCRFD (Face Detection)
-
-| Property | Value |
-|----------|-------|
-| **Model File** | `det_10g.onnx` (part of `buffalo_l` pack) |
-| **Architecture** | SCRFD (Sample & Computation Redistribution for Face Detection) |
-| **Input Resolution** | 640×640 |
-| **Output** | Face bounding boxes + landmarks + detection confidence |
-
-### 2.6 InsightFace — ArcFace (Face Recognition)
-
-| Property | Value |
-|----------|-------|
-| **Model File** | `w600k_r50.onnx` (part of `buffalo_l` pack) |
-| **Architecture** | ResNet-50 trained with ArcFace loss |
-| **Training Dataset** | WebFace600K (600,000 identities) |
-| **Embedding Dimension** | **512-D** |
-| **Total Pack Size** | ~326 MB (`buffalo_l`) |
-| **VRAM** | ~1–2 GB (entire pack) |
-
-**Together:** SCRFD finds faces in the frame → ArcFace extracts a 512-D identity vector. This vector is so discriminative that even partial faces (sunglasses, masks) can still be matched.
-
-### 2.7 GPU Distribution
-
-```
-┌──────────────────────────────────────┐
-│           cuda:0 (T4 #1)             │
-│  • RT-DETR-L (detection)             │
-│  • BotSort (tracker)                 │
-│  • InsightFace SCRFD+ArcFace (faces) │
-├──────────────────────────────────────┤
-│           cuda:1 (T4 #2)             │
-│  • YOLOv11s-Pose (quality gate)      │
-│  • CLIP-ReID (body embeddings)       │
-└──────────────────────────────────────┘
-```
-
----
-
-## 3. Cloud Infrastructure
-
-### 3.1 Pinecone (Vector Database)
-
-Two separate indices for the two modalities:
-
-| Index | Dimension | Metric | Contents |
-|-------|-----------|--------|----------|
-| `supermarket-reid` | 1280 | Cosine | Body prototypes (3 per person via α-FPS) |
-| `supermarket-faces` | 512 | Cosine | Face embeddings (all captured faces) |
-
-**Why Pinecone?** Sub-millisecond approximate nearest neighbor search over millions of vectors, with metadata filtering.
-
-### 3.2 MongoDB Atlas
-
-Stores structured metadata per person:
-
-```json
-{
-    "global_id": 29,
-    "first_seen_ts": 1746432000.0,
-    "last_seen_ts": 1746432185.0,
-    "faces": [
-        {"url": "https://ik.imagekit.io/.../face_g029_t4.jpg", "timestamp": 1746432185.0, "camera_id": "cam_01"}
-    ],
-    "sightings": [
-        {
-            "camera_id": "Face_Cam_Entrance",
-            "track_id": 4,
-            "entry_ts": 1746432010.0,
-            "exit_ts": 1746432185.0,
-            "duration_sec": 175.0,
-            "n_detections": 312,
-            "avg_det_score": 0.87,
-            "avg_skeleton_ratio": 0.72,
-            "best_crop_url": "https://ik.imagekit.io/.../body_g029_t4.jpg"
-        }
-    ]
-}
-```
-
-### 3.3 ImageKit (CDN)
-
-Hosts body crops and face chips as JPEGs. Organized by identity:
-```
-/supermarket_reid/
-    global_id_001/
-        body_g001_t2_1746432000.jpg
-        face_g001_t2_1746432000.jpg
-    global_id_002/
-        ...
-```
-
----
-
-## 4. Configuration & Thresholds
-
-Every threshold in the system is tunable. Here are the defaults and what they control:
-
-### 4.1 Detection & Quality
-
-| Parameter | Default | What it controls |
-|-----------|---------|-----------------|
-| `REID_CONF_THRESHOLD` | **0.75** | Minimum RT-DETR confidence to even consider a detection |
-| `POSE_CONF_THRESHOLD` | **0.3** | Per-keypoint confidence threshold in YOLOv8-Pose |
-| `MIN_VISIBLE_RATIO` | **0.5** | Minimum fraction of 17 keypoints that must be visible |
-
-### 4.2 Identity Resolution
-
-| Parameter | Default | What it controls |
-|-----------|---------|-----------------|
-| `TAU` | **2.0** | Softmax ratio threshold — how confident the system must be to assign an identity |
-| `MIN_COS_SIM` | **0.78** | Absolute minimum cosine similarity to even consider a gallery match |
-| `MAX_IMAGES` | **50** | Maximum crops per identity in the self-adaptive gallery (budget) |
-
-### 4.3 Face Recognition
-
-| Parameter | Default | What it controls |
-|-----------|---------|-----------------|
-| `IS_FACE_CAMERA` | **True** | Master switch: enables/disables all face logic for this camera |
-| `FACE_CONF_THRESHOLD` | **0.7** | Minimum InsightFace detection score to trust a face |
-| `FACE_MATCH_THRESHOLD` | **0.55** | Minimum Pinecone cosine similarity to accept a face match |
-
-### 4.4 Unknown Data Manager (DBSCAN)
-
-| Parameter | Default | What it controls |
-|-----------|---------|-----------------|
-| `UDM_EPSILON` | **0.15** | DBSCAN distance threshold: `1 - cosine_similarity` |
-| `UDM_MIN_SIZE` | **5** | Minimum crops needed to form a cluster |
-
-### 4.5 Session Control
-
-| Parameter | Default | Effect |
-|-----------|---------|--------|
-| `RESET_DATABASE` | **False** | When `True`: wipes MongoDB documents, deletes local crops and pickle. **Does NOT touch Pinecone or ImageKit** (manual deletion required) |
-
----
-
-## 5. Module 4: Video Processing Pipeline
-
-This is the core of the system. Here is the exact frame-by-frame logic.
-
-### 5.1 Gallery Hydration (Pre-Processing)
-
-Before processing any video, the system can load a previously saved `identity_buffer.pkl` file. This pickle contains:
-- All body embeddings per global ID
-- Detection confidence scores
-- Skeleton visibility ratios
-- File paths to saved crops
-
-**Hydration logic:**
-```
-For each gid in saved_data:
-    For each entry (embedding, ratio, score, filepath):
-        If filepath resolves to an actual file → keep it
-        If filepath is broken → skip this entry
-    If gid has zero valid entries → skip this gid entirely
-    Otherwise → load into gallery
-```
-
-This ensures the arrays (`embs`, `ratios`, `scores`, `filepaths`) stay **synchronized** — a critical bugfix that prevents `IndexError` crashes during budget optimization.
-
-### 5.2 Frame Processing Loop
-
-For every single frame in the video:
-
-#### Step 1: Person Detection
-```python
-results = detector(frame, classes=[0], verbose=False)  # RT-DETR, persons only
-```
-
-#### Step 2: Multi-Object Tracking
-```python
-dets = [xyxy, confidence, class]  # stack detections
-tracks = tracker.update(dets, frame)  # BotSort assigns track_ids
-```
-
-#### Step 3: Confidence Filter
-Only tracks with `confidence >= REID_CONF_THRESHOLD (0.75)` proceed. This removes low-confidence ghosts.
-
-#### Step 4: Pose Quality Gate
-```python
-visible_count = sum(1 for x, y, c in keypoints if c > 0.3)
-ratio = visible_count / 17.0
-if ratio < 0.5: REJECT  # less than 50% skeleton visible
-```
-
-#### Step 5: Body Embedding
-```python
-embeddings = extract_reid_features([crop1, crop2, ...])  # batch CLIP-ReID
-# Each embedding is L2-normalized, 1280-D, on cuda:1
-```
-
-#### Step 6: Face Detection & Spatial Pairing (Face Cameras Only)
-```python
-faces_in_frame = face_app.get(frame)  # SCRFD finds all faces
-```
-
-For each tracked person, we check if any detected face **spatially belongs** to their body:
-
-```python
-def get_spatially_matched_face(body_box, faces):
-    bx1, by1, bx2, by2 = body_box
-    for f in faces:
-        face_cx = (f.bbox[0] + f.bbox[2]) / 2
-        face_cy = (f.bbox[1] + f.bbox[3]) / 2
-        # Face center must be inside body box AND in the top 40%
-        if bx1 <= face_cx <= bx2 and by1 <= face_cy <= by1 + 0.4 * (by2 - by1):
-            return f
-    return None
-```
-
-**Why top 40%?** A person's face is always in the upper portion of their body bounding box. This prevents matching a face floating near someone's waist (which would be another person behind them).
-
-#### Step 7: Face Pinecone Lookup
-If a face is matched to a body AND `face_det_score > 0.7`:
-```python
-face_truth_gid = search_face_pinecone(face_embedding)
-```
-This queries the `supermarket-faces` index. If cosine similarity ≥ 0.55, we get back the known global ID.
-
-#### Step 8: Identity Resolution
-
-This is where the magic happens. For each person in the frame:
-
-**🔵 Case A: Track already has a global_id**
-```
-if gid not in claimed_gids_this_frame:
-    ✅ Add observation to gallery
-    Mark gid as "claimed" for this frame
-else:
-    ❌ CONFLICT: Another track already claimed this gid
-    → Remove mapping, send to unresolved
-```
-
-> 🔴 **The Duplicate Guard:** `claimed_gids_this_frame` is a `set()` that prevents two different people visible in the same frame from being assigned the same global ID. If Track A is already GID 5, Track B cannot also be GID 5 in the same frame — Track B gets sent to the unknown pool instead.
-
-**🔵 Case B: Face override (forced_gid)**
-If the face lookup returned a known identity:
-```
-if face recognized as GID 29 BUT body was previously assigned GID 26:
-    → execute_identity_merge(target=29, old=26)
-    → GID 26 is permanently folded into GID 29
-    → All history, embeddings, sightings migrated
-
-if face recognized as GID 29 AND track has no body assignment yet:
-    → item['forced_gid'] = 29  (honored in the unknown resolution step)
-```
-
-**🔵 Case C: Gallery classification (body matching)**
-```python
-best_gid, softmax_ratio, max_prob = gallery.classify_live_track(
-    emb, tau=TAU, exclude_gids=claimed_gids_this_frame
-)
-```
-
-The classification process:
-1. Compute **weighted centroids** for each known identity (embeddings weighted by skeleton ratio)
-2. Calculate cosine similarity between the query and all centroids
-3. **Exclude** any GIDs already claimed this frame (the duplicate guard)
-4. Apply **temperature-scaled softmax** (temperature = 15.0) to get probabilities
-5. Compute **softmax ratio** = P(best) / P(second_best)
-6. If `best_sim < MIN_COS_SIM (0.78)`: reject (too dissimilar)
-7. If `softmax_ratio >= TAU (2.0)`: confident match → assign
-8. Otherwise: ambiguous → send to UDM
-
-**🔵 Case D: Unknown Data Manager (UDM)**
-Crops that can't be confidently assigned go to the UDM pool. Every 30 frames, if the pool has ≥ 5 items:
-
-```python
-# DBSCAN clustering on cosine distance
-dist_matrix = 1.0 - cosine_similarity_matrix
-labels = DBSCAN(eps=0.15, min_samples=5, metric='precomputed').fit(dist_matrix).labels_
-```
-
-For each cluster found:
-- **Face VIP Bypass:** If any item in the cluster has a `forced_gid` from face recognition, the entire cluster inherits that identity (majority vote if multiple faces)
-- **Merge:** If the cluster centroid is close enough to an existing gallery identity (distance ≤ ε), merge into that identity
-- **Mint:** If no match, create a brand new global ID
-
-Items labeled as noise (label = -1) stay in the pool for the next DBSCAN run.
-
-### 5.3 The Self-Adaptive Gallery (`GalleryManager`)
-
-The gallery stores up to `MAX_IMAGES = 50` crops per identity. When a new observation pushes it over budget, the **worst** crop is dropped using a combined cost function:
-
-```
-drop_cost = 0.5 × redundancy + 0.5 × uncertainty
-```
-
-Where:
-- **Redundancy** = max cosine similarity to any OTHER crop of the same person (high = this crop looks just like another one we already have)
-- **Uncertainty** = normalized entropy over softmax similarities to ALL gallery centroids (high = this crop is ambiguous, looks like multiple people)
-
-The crop with the **highest drop cost** is deleted — it's both redundant AND confusing.
-
-### 5.4 Identity Merge (`execute_identity_merge`)
-
-When face recognition detects that two GIDs are actually the same person:
-
-```
-execute_identity_merge(target_gid=29, old_gid=26)
-```
-
-This does:
-1. **Gallery:** Move all embeddings, ratios, scores from GID 26 → GID 29
-2. **Files:** Move image crops from `global_id_026/` → `global_id_029/`
-3. **Local map:** Update all `track_id → 26` mappings to `track_id → 29`
-4. **Sighting tracker:** Update active sightings pointing to 26 → 29
-5. **MongoDB:** Migrate sightings array, delete old document
-
-### 5.5 Sighting Tracking
-
-The `SightingTracker` maintains per-track metadata:
-- **Entry/exit timestamps** (frame number → UTC via `VIDEO_START_TIME + frame/fps`)
-- **Detection count** and running sums for average confidence and skeleton ratio
-- **Best body crop** (highest `conf × ratio`)
-- **Best face crop** (highest `det_score`)
-- **Best face embedding** (for Pinecone upload)
-
-When a track disappears (BotSort stops reporting it), `close_track()` is called:
-- Computes averages
-- Moves the sighting to `completed_sightings` (if it has a global_id)
-
-### 5.6 Cloud Upload (Post-Processing)
-
-After the video finishes, all completed sightings are uploaded in parallel (10 threads):
-
-1. **Body crop → ImageKit** → get URL → store in sighting
-2. **Face crop → ImageKit** → get URL
-3. **Face embedding → Pinecone** `supermarket-faces` with metadata `{global_id, face_url, camera}`
-4. **Sighting → MongoDB** `$push` to person's sightings array
-5. **Gallery → Pickle** serialized as `identity_buffer.pkl` for future hydration
-
----
-
-## 6. Module 5: Search Engine
-
-### 6.1 Body Search (α-FPS Prototypes)
-
-Since each person can have up to 50 crops, storing all of them in Pinecone is wasteful. We use **α-FPS (Adaptive Farthest Point Sampling)** to select K=3 prototypes that maximize both **quality** and **diversity**.
-
-**Algorithm:**
-```
-1. Pick the crop with highest quality score (conf × ratio) → Prototype 1
-2. Compute distances from every remaining crop to Prototype 1
-3. For each subsequent prototype:
-   combined_score = α × quality + (1-α) × distance_to_nearest_prototype
-   Pick the crop with highest combined_score
-4. Update distances (min of current distance and distance to new prototype)
+Design points:
+
+- Unit of identity is the **tracklet** (one person, one camera, one continuous track), not the frame. A tracklet
+  gets one decision from several good samples, not one decision per frame.
+- The identity engine follows Casao et al. (self-adaptive gallery, softmax ratio test, Unknown Data Manager),
+  extended with face evidence and multi-camera constraints.
+- Every tracked box of every frame is stored, so any video can be re-rendered and any person followed
+  afterwards without re-running the models.
+- Cameras are processed one after the other in one run, into one shared identity space.
+
+## 2. Data model
+
+One environment is one folder (`paths.data_dir`). Layout:
+
+| Path | Content |
+|---|---|
+| `reid.db` | SQLite database (schema version 2, `src/reid/storage/db.py`) |
+| `vectors/` | Vector collections as `<name>.npy` (N x D float32, L2-normalised) and `<name>.ids.npy` (N x 2 int64: key, label) |
+| `crops/<id//1000>/t<id>.jpg` | Best body crop of each tracklet |
+| `faces/<id//1000>/t<id>.jpg` | Best face crop of each tracklet |
+| `renders/` | Rendered videos, GIFs, heatmaps (cache, can be regenerated) |
+| `eval/<name>.json` | Evaluation results shown in the Metrics tab |
+| `cache/` | Per-run statistics (`run_<id>.json`: stage timings, GPU memory, device plan) |
+| `uploads/` | Videos added through the app (the database keeps a relative path) |
+| `env.json`, `.reid_data` | Environment metadata and the marker that allows a guarded reset |
+
+Source videos are referenced by path and never copied, except uploads from the app and `--with-videos` exports.
+
+### SQLite tables
+
+| Table | Purpose |
+|---|---|
+| `runs` | One row per `reid process` call: time, full config as JSON, status |
+| `cameras` | Id, video path, real fps, processed size, `start_ts`, `is_face_cam`, optional homography and background |
+| `tracklets` | One row per tracklet: camera, frame and time range, point and sample counts, mean quality, `gid`, `assign_score`, `assign_source` (`body`, `face`, `consolidate`, `manual`), best crop and face paths |
+| `track_points` | Every tracked box (frame, ts, x1..y2, conf, `sampled`). `WITHOUT ROWID`, key `(tracklet_id, frame)` |
+| `identities` | `gid`, label, first/last timestamp, number of tracklets, `has_face` |
+| `tracklet_gid_history` | Every gid change of a tracklet with old/new source and reason, so consolidation is reversible |
+| `samples` | Body samples of tracklets (id = key in the `body_samples` collection, quality, `in_gallery`) |
+| `identity_cannot_links` | Persistent cannot-links, for example after a manual split |
+
+Time is `camera.start_ts + frame_index / fps`, with fps read from the video (config can override it).
+
+### Vector collections
+
+| Collection | Content | Rebuilt |
+|---|---|---|
+| `body_samples` | Up to 16 body embeddings per tracklet, label = gid | labels follow gid changes |
+| `body_tracklet` | One quality-weighted mean per tracklet | |
+| `face_tracklet` | One face descriptor per tracklet that has faces | |
+| `body_proto` | K = 3 prototypes per identity (search index) | per affected gid |
+
+Dimensions: body 1280 (CLIP-ReID) or 512 (OSNet); face 512 (ArcFace). Search reads the models an
+environment was processed with, so the dimensions always match. The backend is NumPy brute force
+(exact cosine); `faiss-cpu` is optional (`pip install "reid[faiss]"`).
+
+## 3. Stages
+
+### 3.1 Detection and pose
+
+Models: YOLO26-pose (Ultralytics) or RF-DETR S/M/L, plus a separate YOLO26-pose on padded crops when the
+detector has no keypoints. YOLO26 is end-to-end (NMS-free). Person class only (`detection.classes: [0]`).
+
+| Parameter | Default |
+|---|---|
+| `detection.model` | `yolo26m-pose.pt` (balanced) |
+| `detection.conf` | 0.25 |
+| `detection.imgsz` | 640 (RF-DETR uses its own resolution) |
+| `quality.pose_model` | `null` (single-model mode: keypoints come from the detector box itself) |
+| `runtime.max_side` | 1920: larger frames are downscaled right after decoding; all later stages use that size |
+| `runtime.frame_stride` | 1 (the evaluation runs used 2) |
+
+In single-model mode each box has its own keypoints (v1 took the first pose found in the crop).
+
+### 3.2 Tracking
+
+One tracker per camera (`tracking/tracker.py`, boxmot 26.0.0). Paper: BoT-SORT, arXiv:2206.14651.
+
+| Parameter | Default |
+|---|---|
+| `tracking.tracker` | `botsort` (`bytetrack` in lite, `occluboost` in max) |
+| `track_high_thresh` / `track_low_thresh` / `new_track_thresh` | 0.5 / 0.1 / 0.6 |
+| `track_buffer` | 30 frames |
+| `match_thresh` | 0.8 |
+| `use_cmc` | true (camera-motion compensation) |
+| `appearance` | false; true in `accurate` and `max` |
+| `appearance_thresh` | 0.25 (BoT-SORT paper value) |
+
+By default the tracker is motion-only. With `appearance: true` the pipeline embeds every detection with the body
+model and gives the embeddings to the tracker (BoT-SORT and OccluBoost only; ByteTrack ignores it with a
+warning). This avoids swapping two people who cross, costs about 40% of the speed on a GTX 1050, and the embeddings
+are reused as tracklet samples, so nothing is embedded twice.
+
+### 3.3 Tracklet builder
+
+`tracking/tracklets.py`. Turns tracker output into finalized `Tracklet` objects.
+
+1. Every tracked box becomes a `TrackPoint` (stored for all frames).
+2. A box becomes a **sample candidate** only if it passes cheap gates, in order. The gates are cheap on purpose,
+   because the embedding model runs only on accepted samples.
+
+   | Gate | Parameter | Default |
+   |---|---|---|
+   | detection confidence | `quality.min_det_conf` | 0.75 (0.5 in lite) |
+   | box height | `quality.min_box_h` | 96 px |
+   | not cut by the frame edge | `edge_margin_px`, `reject_truncated` | 2 px, true |
+   | keypoint visibility | `kp_conf`, `min_visible_ratio` | 0.3, 0.5 of 17 keypoints |
+   | at most one sample per track every | `sample_every` | 5 processed frames |
+   | sample quality (visibility x confidence) | `min_quality` | 0.35 |
+
+3. Accepted crops are embedded in batches (`runtime.batch_size` 16) across tracks and frames.
+4. The best `max_samples_per_tracklet` (16) samples by quality are kept, plus the best crop image.
+5. On face cameras, face detection runs on accepted samples only (see 3.5).
+6. A tracklet is **finalized** when its track has been missing for `track_lost_s` (2.0 s) and when the video ends.
+   Tracks shorter than `min_points` (5) are dropped. Tracklets with fewer than `min_samples` (2) samples keep
+   their points but get no identity (`gid` NULL); they are drawn grey.
+7. **Split on appearance.** The tracker can swap two people who cross. The builder keeps the chronological
+   embedded samples of each open track (bounded by `max_history`, 400) and, at finalization, finds the best change
+   point `k` that minimises `cos(mean(e[:k]), mean(e[k:]))` with at least `split_min_samples` (3) per side. It
+   splits when the similarity is below `split_min_sim` (0.7), recursively. The cut is placed where the track had
+   the highest overlap with other tracks. Calibration on scene 075 with CLIP-ReID: halves of one person >= 0.88
+   (median 0.96); different people <= 0.58 (median 0.17).
+
+Finalization is incremental: a tracklet is handed to the identity engine as soon as it closes, while the
+video is still being read. Nothing waits for the end of the file.
+
+### 3.4 Body embedding
+
+| Model | Dim | Used in |
+|---|---|---|
+| CLIP-ReID ViT-B/16, MSMT17 weights (AAAI 2023) | 1280 (BN-neck features, 768 + 512) | balanced, accurate, max |
+| OSNet x1.0, MSMT17 (boxmot) | 512 | lite |
+
+Preprocessing for CLIP-ReID matches the official config: stretch to 256 x 128, mean/std 0.5. OSNet uses
+ImageNet statistics. fp16 is used on CUDA devices with compute capability >= 7 and never on CPU or Pascal.
+
+### 3.5 Face
+
+InsightFace packs: SCRFD detector plus ArcFace recognition (CVPR 2019), 512-D. Only cameras marked
+`is_face_cam` run it, and only on accepted samples.
+
+| Parameter | Default |
+|---|---|
+| `face.model` | `buffalo_l` (`buffalo_sc` in lite, `antelopev2` in max) |
+| `det_size` | 640 (480 in lite; capped to 480 on CPU) |
+| `det_conf` | 0.7 |
+| `head_region` | face centre in the top 0.4 of the body box |
+| `max_faces` | 5 best faces per tracklet |
+| `min_face_px` / `full_size_px` | 32 / 112 |
+
+Face quality is detection score x size factor x frontalness (from landmarks). The best face in the head region is
+kept (not the first). Face weights are research-only licensed and are downloaded at run time, never committed.
+
+### 3.6 Identity engine
+
+`identity/associate.py` (`IdentityEngine`), with `gallery.py`, `udm.py`, `constraints.py`. State is persisted
+and reloaded, so runs accumulate across sessions. Interface used by the pipeline:
+`on_tracklet(t)`, `end_camera(camera_id)`, `end_run(run_id)`.
+
+**Per finished tracklet** (`on_tracklet`):
+
+1. **Descriptors.** Quality-weighted mean of the sample embeddings (body) and of the best faces (face).
+2. **Face first, with accumulated evidence.** Query `face_tracklet`, aggregate per gid. Assign when the best
+   cosine >= `face_match` (0.55), the lead over the next different-looking gid >= `face_margin` (0.05) and at least
+   `face_min_obs` (2) of the tracklet's faces support it. Source becomes `face`.
+3. **Body test (Casao et al. 2023).** Softmax over cosine similarity to the quality-weighted gallery
+   centroids with inverse temperature `softmax_temp` (10, i.e. v = 0.1). Accept if `p1/p2 >= tau` (2.0) and
+   `cos >= min_cos` (0.78, a floor from v1 that is not in the paper) and at least `sample_vote` (0.5) of the
+   samples agree on the same gid. This is the project's addition; Casao decides per frame.
+4. **Constraints.** Gids with a cannot-link to this tracklet are excluded before both tests:
+   - the same camera and an overlap in time greater than `overlap_tolerance_s` (0): one person is not in two
+     places of the same view. Time rules compare only tracklets of the same run;
+   - a face conflict: both tracklets have faces and their cosine is below `face_conflict` (0.3);
+   - topology (`use_topology`, when the camera set defines `min_transit_s`): a transit between cameras that is
+     shorter than possible.
+5. **Verify before update.** Samples enter the identity's gallery only after a confident assignment, one by one
+   through Casao's diversity gate (insert only if `D_i(x) >= D(C_i)`, `diversity_ref: min`). Over budget
+   (`gallery_budget` 50), the sample with the largest `gamma*H/log N - (1-gamma)*D_i` is dropped
+   (`gallery_gamma` 0.6). A tracklet assigned by face whose body confidently contradicts the face gid is not
+   inserted; it records a must-link for consolidation instead of an immediate merge.
+6. **Unknown Data Manager (UDM).** Unmatched tracklets go to a pool. At `end_camera` and every `udm_every` (20)
+   pooled tracklets, the pooled descriptors are clustered with DBSCAN (cosine, `udm_eps` 0.15, honouring
+   cannot-links). A cluster with at least `udm_min_samples` (20) samples is compared with its `udm_k` (3) nearest
+   centroids: if the distance exceeds `udm_new_dist` (0.1) it mints a new gid, otherwise it merges into the
+   nearest one.
+7. **Bootstrap** (Casao's initialisation). While there are fewer than `bootstrap_q` (20) identities, an unmatched
+   tracklet with at least `bootstrap_min_samples` (8) samples mints directly, or joins an existing gid when the
+   cosine is above `bootstrap_join_cos` (0.9).
+
+**End of camera / end of run:**
+
+- `end_camera` runs the UDM on what is pooled.
+- `end_run` flushes the pool (every remaining tracklet with enough samples becomes its own gid, so nobody
+  disappears), runs consolidation, and rebuilds the prototypes of the affected gids.
+
+### 3.7 Consolidation
+
+`identity/consolidate.py`. Constrained average-linkage agglomerative clustering over gid centroids, stopped at
+`merge_threshold` 0.25 (1 - cos). Face must-links are applied first. Cannot-links are never violated, also
+transitively. The merged identity keeps the oldest gid. Tracklets are relabelled with `source='consolidate'` and
+the change is written to `tracklet_gid_history`. Galleries of merged identities are united and pruned to budget.
+By default it also clusters with identities already in the environment (`include_existing`). Manual operations
+(merge, split a tracklet, rename, re-cluster) use the same machinery; a manual split writes a persistent
+cannot-link so consolidation does not undo it.
+
+### 3.8 Prototypes and search
+
+`identity/prototypes.py`, `search.py`.
+
+- **Prototypes.** `proto_k` = 3 per identity. Default method `alpha_fps`: farthest-point sampling seeded by the best
+  quality sample, with quality and distance min-max normalised per step and weighted by `proto_alpha` 0.5. Option
+  `gcp` implements Al Muzaddid and Beksi (arXiv:2510.17043, Algorithm 1: farthest points interpolated toward the
+  nearest prototype, `x <- x + gcp_alpha (p - x)`, alpha 0.5 because the paper does not state it).
+  Deviations from the paper: exactly K prototypes are returned, cosine distance, re-normalised.
+- **Body search.** Embed the query, query `body_proto` (`search.top_k` 10), keep the best score per gid, and
+  apply the softmax ambiguity check (`search.tau` 1.5, `softmax_temp` 10, `body_min_cos` 0.75). Status:
+  `MATCH`, `AMBIGUOUS` or `UNKNOWN`.
+- **Face search.** Detect the largest face (or embed a pre-cropped face with gray padding `face_pad` 1.0), query
+  `face_tracklet` (`face_top_k` 5), aggregate per gid, require `face_min_cos` 0.55 and `face_margin` 0.05.
+- **Both.** Face has priority; body is the fallback.
+
+### 3.9 Analytics, rendering, app
+
+- `analytics.py`: pure functions over the database: `journey`, `transitions` (camera to camera matrix),
+  `dwell_stats`, `occupancy`, `run_summary` (people count, identified %, face-confirmed %, tracklets per person).
+- `viz/`: `render_camera` (re-reads the video and draws every stored box, H.264 through an ffmpeg pipe), `render_mosaic`
+  (all cameras on the shared timeline), `follow_person` (cuts between cameras along one person's journey),
+  presence timeline, foot-point heatmaps from all track points (per camera, per person).
+- `app/` (Gradio 6.32.0): tabs Overview, Process, Explore, Search, Cameras, Metrics, Admin. Tab files contain
+  layout and wiring only. Handlers call `reid.pipeline`, `reid.search`, `reid.analytics`, `reid.viz`. Long jobs run in
+  worker threads with a concurrency limit of 1. Renders are cached under `renders/app/`, keyed by parameters and a
+  fingerprint of the tracklet-to-identity assignment. An environment bar switches between environments.
+  `--share` requires a login (generated if `--auth` is not given); the URL fetcher in Search accepts only public
+  http(s) hosts, refuses redirects and caps downloads at 8 MB.
+
+## 4. Presets
+
+Selected with `--preset`. Precedence of configuration: built-in defaults < preset < `-c` file < `--set KEY=VALUE`.
+
+| Preset | Detector (+ pose) | Tracker | Body ReID | Face | Target |
+|---|---|---|---|---|---|
+| `lite` | YOLO26n-pose (single model) | ByteTrack | OSNet x1.0 (512-D) | buffalo_sc | small GPU / CPU |
+| `balanced` (default) | YOLO26m-pose (single model) | BoT-SORT, motion-only | CLIP-ReID (1280-D) | buffalo_l | free Colab T4 |
+| `accurate` | RF-DETR-M + YOLO26s-pose on crops (320) | BoT-SORT with appearance | CLIP-ReID | buffalo_l | 6 GB+ GPU |
+| `max` | RF-DETR-L (704) + YOLO26m-pose on crops (384) | OccluBoost with appearance | CLIP-ReID | antelopev2 | quality first |
+
+`max` does not use PersonViT-B yet: the preset file says so, and the weights are not wired in (see
+[future_work.md](future_work.md)).
+
+### Measured GPU memory and speed
+
+GPU memory is the whole-process peak read from NVML (includes the CUDA context, the PyTorch cache and ONNX Runtime
+when it runs on GPU). The local numbers were taken on a GTX 1050 (3 GB) on a 1-minute AI City slice, with the face
+models on CPU, so they are not counted.
+
+| Preset | GPU memory (GTX 1050) | Speed | Source |
+|---|---|---|---|
+| `lite` | 0.26 GB | 49.9 fps (120 s, 4 cameras, stride 2); 20.8 fps in an early smoke test with other GPU load | changes_log P6, P2 |
+| `balanced` | 0.87 GB local; 1.02 GB on T4 (face on GPU) | 16.9 fps on GTX 1050; **34 fps on Colab T4** | changes_log P7, v1_to_v2 8.3 |
+| `balanced` + appearance tracking | not measured | 9.6 fps on GTX 1050 | changes_log P7 |
+| `accurate` | 0.82 GB | not measured end to end | local_app.md |
+| `max` | 1.14 GB (the planner estimated 1.24 GB) | 4.0 fps on GTX 1050 (300 frames per camera, 2 cameras) | changes_log |
+
+fps counts processed frames (with `frame_stride` 2, every second source frame). `accurate` and `max` were
+not evaluated for accuracy. Early smoke figures were taken while a game used part of the GPU, so they are
+pessimistic.
+
+## 5. Device planner and `--preset auto`
+
+`models/planner.py` places each model from the machine and the config, as a pure function of `Config` and a
+`Hardware` description (so it is tested with fake machines).
+
+- Order: detector, body ReID, pose, face. Each model goes to the GPU if its measured cost fits in
+  `free VRAM x 0.88 - 100 MB (CUDA context)`; otherwise to CPU, and smaller models still try the GPU.
+- Costs come from a measured table (`planner.COSTS`, measured one model per fresh process with
+  `python -m reid.models.vram_probe`): for example `yolo26m-pose` 490 MB, CLIP-ReID 385 MB + 9 MB per crop,
+  OSNet 33 MB + 13 MB per crop. Face packs are estimates.
+- Face models run on the GPU only if compute capability >= 7 and an onnxruntime CUDA provider exists. onnxruntime-gpu
+  1.32 has no Pascal kernels, so on a GTX 10xx the face models run on CPU.
+- Models placed on CPU get smaller inputs when `runtime.cpu_downsize` is on (detector 640, pose 320, face 480);
+  this is logged.
+- Out-of-memory at run time is handled in `models/placement.py`: free the cache, halve the batch once, retry,
+  then move that model to CPU. Events are recorded in `device_plan.events`.
+- `runtime.device_plan` (`auto|gpu|cpu`), `runtime.vram_budget_gb` (simulate a smaller GPU) and explicit
+  `detect_device` / `embed_device` values override the planner.
+
+`--preset auto` (default for `reid process` and `reid app`; the other commands default to `balanced`): no CUDA or
+less than 2 GB free VRAM gives `lite`; 2 to 6 GB gives `balanced`; 6 GB or more gives `accurate`. `max` is
+never chosen automatically. `reid info` prints the hardware, the preset auto would pick and the device plan.
+
+Measured on the GTX 1050 (600 frames): auto chose `balanced`, detector and body on GPU, face on CPU, 10.8 fps,
+0.87 GB. With `vram_budget_gb=0.4` everything ran on CPU at 1.6 fps; with 0.8 the detector was on GPU, body and
+face on CPU, 8.7 fps. With no GPU (`CUDA_VISIBLE_DEVICES=`), auto chose `lite` on CPU at 9.3 fps.
+
+## 6. Environments, portability, notebooks
+
+- **Environment.** A subfolder of a workspace that holds `reid.db` or `env.json`. `reid app --workspace DIR --env NAME`.
+  Different footage sets do not mix.
+- **Moving data.** `reid env list|export|import|relink`. `export` zips an environment with a consistent copy of the
+  database (SQLite online backup). `relink` points cameras at local copies of the videos by file name.
+- **Sync.** `reid sync push|pull --workspace W --remote TARGET`, where TARGET is a folder (mounted Drive, USB) or an
+  rclone path `name:path` (used only if `rclone` is already installed). Per environment it compares a fingerprint
+  (consistent database snapshot plus vector file sizes) and the last synced state. It copies only when one side
+  changed, refuses when both changed (exit code 3), and with `--force` first moves the destination aside as
+  `<env>.bak-<timestamp>`. Details in [local_app.md](local_app.md).
+- **Colab launcher** (`notebooks/colab_demo.ipynb`): installs the package, mounts Drive, starts `reid app --share
+  --auth ...` on `MyDrive/reid_data/environments`. It processes nothing itself; footage is added in the Process tab.
+- **Walkthrough** (`notebooks/colab_walkthrough.ipynb`): reproduces the AI City benchmark end to end.
+- Both are generated by `scripts/build_colab_notebook.py` and contain only `reid` commands (through `reid.notebook.sh`),
+  no pipeline logic. `scripts/test_notebook.py` runs the launcher locally, skipping cells tagged `colab-only`.
+  Executed copies (`*_finished.ipynb`) hold the app password and are git-ignored.
+
+## 7. Evaluation
+
+### Protocol (`reid evaluate`, extra `[eval]`)
+
+Dataset: **AI City Challenge 2024, Track 1** (NVIDIA, synthetic retail scenes, CC-BY-4.0). Scene 075: 4
+overlapping cameras (0700, 0701, 0708, 0711), first 2 minutes, 1280 x 720, 30 fps, 10 people, 19,146 labelled boxes.
+Fetch with `reid dataset fetch aicity24 --scene 075 --minutes 2`. Runs used `frame_stride` 2, IoU 0.5, and
+ignored GT boxes shorter than 40 px.
+
+| Metric | Meaning |
+|---|---|
+| Per-camera MOT (IDF1, MOTA, ID switches) | `motmetrics`, from stored track points and the gid hypothesis |
+| Cross-camera IDF1 | gids mapped to GT ids over all cameras at once |
+| Fragmentation and purity | GT people split over several gids, gids that mix people, tracklets that mix people |
+| Held-out retrieval | 5 queries per person cropped from GT boxes at moments the system did not sample; Rank-1, Rank-5, mAP against `body_proto` |
+
+The v1 figure of 85.35% was computed by re-querying the system's own saved crops against prototypes built from the
+same crops, so it is not an accuracy and is not comparable with these numbers.
+
+### Results (scene 075, 2 minutes, `balanced`)
+
+| Run | Cross-camera IDF1 | Identities (10 people) | People split | Gids mixing people | Rank-1 | Speed |
+|---|---|---|---|---|---|---|
+| before the tracklet splitter (GTX 1050) | 82.4% | 11 | 2 | 1 | 92% | 16.7 fps |
+| final, GTX 1050 | 89.4% | 10 | 0 | 0 | 96% | 16.9 fps |
+| + appearance tracking, GTX 1050 | 90.4% | 10 | 0 | 0 | 96% | 9.6 fps |
+| **final, Colab T4** | **88.3%** | **10** | **0** | **0** | **96%** | **34 fps**, 1.02 GB |
+
+The `lite` preset on the same scene: IDF1 83.6%, 11 gids for 10 people (1 person split, none mixed), Rank-1 98%,
+49.9 fps.
+
+Reading the results:
+
+- Identity is nearly perfect on this scene (purity 100%). The combined IDF1 is limited by recall (IDR about 81%
+  for `balanced`), not by identity errors (IDP 97 to 98%). People 80 to 120 px tall are detected 39.7% of the time
+  and 40 to 80 px 31.7% of the time with `balanced`.
+- The tracker alone fragments tracks (44 tracklets for 10 people over 4 cameras). The identity layer repairs
+  this: per-camera IDF1 improves by 20 to 30 points on the busy cameras.
+- Rank-1 is near ceiling on this data and cannot separate the presets.
+
+## 8. Limitations
+
+- **Small and distant people** are missed by the detector. This caps IDF1, not identity association.
+- **One scene, synthetic people.** Thresholds (split 0.7, body match 0.78, consolidation 0.25) were calibrated on
+  scene 075. Synthetic people have distinct appearances, so the result validates the plumbing and constraints,
+  not absolute ReID thresholds on real crowds. One false split was seen (one person cut in two and re-joined).
+- **Faces are not validated on real footage.** The AI City people have no usable faces. The face path is tested with
+  synthetic evidence and sample images. `accurate` and `max` were not evaluated for accuracy.
+- **Offline only.** Videos are processed as files, cameras one after the other. There is no live ingestion.
+- **Appearance tracking** costs about 40% of the speed on a GTX 1050.
+- **Pascal GPUs:** no fp16, and no GPU for the face models (onnxruntime-gpu 1.32 has no kernels for them).
+- **Retrieval gallery is not disjoint** from the query tracklets (a query box is held out of the samples, but not the
+  whole tracklet).
+- **Privacy.** Faces and body descriptors are biometric data. Data stays local and shared app links need a login,
+  but there is no consent, retention or blurring feature.
+- **Licences.** The package is AGPL-3.0 because Ultralytics and boxmot are AGPL. InsightFace weights are
+  research-only.
+
+## 9. Reproducibility
+
+Verified environment (Python 3.12, Linux): `torch 2.14.1+cu126`, `torchvision 0.29.1`, `ultralytics 8.4.218`,
+`boxmot 26.0.0`, `rfdetr 1.12.1`, `insightface 2.1`, `onnxruntime-gpu 1.32.0`, `gradio 6.32.0`, NumPy 2.5.5.
+The `models`, `app` and `eval` extras in `pyproject.toml` pin these. `torch` is not pinned in the extra because
+Colab ships its own CUDA build. Pascal GPUs need the cu126 wheels (comment in `pyproject.toml`).
+
+```bash
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install -e ".[models,app,eval,dev]"
+pytest -q                 # CPU, synthetic data, no weights (default: -m "not models")
+pytest -q -m models       # needs weights and a GPU or time on CPU
+ruff check . && ruff format --check .
 ```
 
-With `α = 0.5`, this balances quality and diversity equally. The result: 3 representative views of the person (e.g., front, side, back) that are all high-quality.
+Fetch data and reproduce the benchmark:
 
-These 3 prototypes are upserted to `supermarket-reid` with IDs like `global_29_proto_1`.
-
-**Search flow:**
-```
-Query image → CLIP-ReID → 1280-D vector
-    → Pinecone query (top_k=10)
-    → Group results by global_id (take MAX score per ID)
-    → Softmax ambiguity check (temperature=15.0)
-        If ratio < tau: "AMBIGUOUS"
-        If best_score < threshold: "UNKNOWN"
-        Otherwise: "MATCH" → fetch MongoDB document
+```bash
+reid dataset fetch aicity24 --scene 075 --minutes 2 --out data/datasets/aicity24_075
+reid process --cameras configs/cameras/aicity24_075.yaml --preset balanced \
+    --data-dir data/eval_bal --set runtime.frame_stride=2
+reid evaluate --data-dir data/eval_bal --gt data/datasets/aicity24_075/gt.csv
 ```
 
-### 6.2 Face Search (Direct)
-
-Face embeddings are already highly discriminative, so **no prototypes are needed**. The search queries `supermarket-faces` directly.
-
-**Pre-cropped face handling:** If the query is an already-cropped face chip (from ImageKit), the face detector can't find a face because the image is 100% face with no background context. Fix: pad the crop into a 3× larger gray canvas:
-
-```python
-def embed_face_crop(img_bgr):
-    h, w = img_bgr.shape[:2]
-    pad = max(h, w)
-    canvas = np.full((h + 2*pad, w + 2*pad, 3), 128, dtype=np.uint8)
-    canvas[pad:pad+h, pad:pad+w] = img_bgr
-    return embed_face(canvas)
-```
-
-### 6.3 Movement Heatmaps (Person Search)
-
-After a person is identified through a body or face search, the dashboard generates a **spatial movement heatmap** that visualises all the positions the matched person occupied across every camera where they were seen.
-
-#### How It Works
-
-**Step 1 — Collect positions from sightings**
-
-Each completed sighting stores a `best_crop_bbox` field: the exact bounding box `[x1, y1, x2, y2]` (in full-frame pixel coordinates) of the best body crop. The helper `_bbox_centers_from_sightings()` converts these into center points:
-
-```python
-cx = (x1 + x2) / 2.0
-cy = (y1 + y2) / 2.0
-```
-
-All sightings that have no `best_crop_bbox` are simply skipped — they contribute nothing to the heatmap.
-
-**Step 2 — Group by camera**
-
-`build_all_camera_heatmaps()` splits the sighting list by `camera_id`. Each camera gets its own independent heatmap. This is important: the bounding box pixel coordinates only make sense relative to the frame dimensions of the camera that recorded them.
-
-**Step 3 — Render on camera background**
-
-For each camera, `build_person_heatmap()` attempts to load a **reference background frame** from disk:
-
-```
-{CAMERA_BG_DIR}/bg_{camera_id}.png
-```
-
-If found, the heatmap is overlaid on the real camera view, letting you immediately see *where in the store* the person was standing. If no background exists, a plain dark canvas (`640×480` minimum, scaled to the furthest detected position) is used as a fallback.
-
-**Step 4 — Gaussian density estimation**
-
-Heatmap rendering uses a two-pass approach to avoid the computational cost of full-resolution Gaussian evaluation:
-
-1. A **small downscaled canvas** (`height × heat_scale`, `width × heat_scale`, default `heat_scale = 0.10`) receives a circular stamp (`radius = round(σ × 1.1)`) at each center point.
-2. A Gaussian blur is applied to the small canvas: `cv2.GaussianBlur(kernel=(k, k), sigmaX=σ)`.
-3. The result is **upscaled** back to full camera resolution with `cv2.INTER_LINEAR` interpolation.
-4. The heatmap is normalised to `[0, 255]` and colourised with `cv2.COLORMAP_JET` (blue = sparse, red = dense).
-5. The final overlay blends the background and heatmap: `cv2.addWeighted(bg, 1−α, heat_color, α, 0)`.
-
-**Step 5 — Last-position marker**
-
-The most recent sighting's bounding box is drawn on top of the heatmap:
-- A **red filled circle** at the center point.
-- A **cyan rectangle** tracing the full bounding box.
-
-This gives a clear "last known position" anchor on top of the density map.
-
-#### Configuration Parameters
-
-| Parameter | Default | What it controls |
-|-----------|---------|------------------|
-| `heatmap_sigma` | **5** | Gaussian spread radius in the downscaled space. Higher = smoother, larger blobs. |
-| `heatmap_alpha` | **0.6** | Blend ratio of the heatmap overlay. `0.0` = background only; `1.0` = heatmap only. |
-
-Both are exposed as sliders in the Person Search tab of the dashboard.
-
-#### Output
-
-The function returns a list of `(camera_id, rgb_ndarray, info_str)` tuples — one entry per camera that had at least one sighting with a valid bbox. The Gradio UI renders these as a captioned gallery (`gr.Gallery`), so each camera's heatmap is shown as a separate panel with the camera ID as its label.
-
-```
-Example info string:
-"cam_01 — 47 position(s) (camera `cam_01` — 1920×1080)"
-```
-
-If no sightings contain bounding box data (e.g. the person was found only via face search against very old records), the gallery remains empty and an explanatory message is shown instead.
-
-#### Dependency: Bounding Box Storage
-
-The heatmap feature relies on the `best_crop_bbox` field being populated in every sighting. This field is set during video processing by `SightingTracker.update_track()` whenever the current detection offers a higher-quality crop than the previous best. Since bounding boxes are stored in MongoDB as part of the sighting subdocument, they persist across sessions — a heatmap generated from a search months after original processing will still show the correct real-world positions.
-
----
-
-## 7. Module 6: Interactive Dashboard
-
-A Gradio web UI with 3 tabs:
-
-| Tab | Features |
-|-----|----------|
-| **🎬 Video Processing** | Upload video or enter dataset path, toggle face camera, save/discard results, reset DB, adjust ALL thresholds via sliders, progress bar |
-| **🔍 Person Search** | Upload image or paste URL, choose Body/Face/Both, toggle "pre-cropped face", rebuild prototypes button, shows match + full person details + **movement heatmap per camera** |
-| **📋 Database Browser** | Two sub-tabs: **Browse All** (bulk card view, faces first then body sightings) and **Person Detail** (dropdown, visit history table, body/face galleries) |
-
-Runs with `demo.launch(share=True)` for a public URL on Kaggle.
-
----
-
-## 8. Evaluation Results
-
-### 8.1 Body Search (Brute Force Test)
-
-Tested against 1,317 saved body crops:
-
-| Metric | Value |
-|--------|-------|
-| ✅ **Accuracy** | **85.35%** (1,124 / 1,317) |
-| ❌ Wrong ID | 54 crops |
-| ⚠️ Ambiguous (rejected) | 74 crops |
-| ⚠️ Unknown (rejected) | 9 crops |
-| **Avg Speed** | 183.8 ms/query |
-| **Avg Similarity** | 0.925 |
-| **Min Similarity** | 0.753 |
-
-> The 74 "Ambiguous" rejections are the safety net working correctly — the system refused to guess when unsure, preventing false positives.
-
-### 8.2 Face Search
-
-Direct face matching via Pinecone achieves near-perfect accuracy when faces are properly detected. The 0.942 cosine similarity score on test queries confirms the discriminative power of ArcFace embeddings.
-
----
-
-## 9. Known Limitations & Design Decisions
-
-### 9.1 Data Consistency After Reset
-`RESET_DATABASE = True` clears MongoDB and local files but **does not touch Pinecone or ImageKit**. This means face embeddings in Pinecone may reference GIDs that no longer exist in MongoDB. **Manual action required** to fully reset: delete Pinecone index entries and ImageKit folder separately.
-
-### 9.2 RAM-First Processing
-All sightings are accumulated in memory during video processing and uploaded in bulk at the end. This is optimized for Kaggle/Colab where persistent storage is limited, but means a kernel crash mid-processing loses all data.
-
-### 9.3 Single-Frame Identity Lock
-The `claimed_gids_this_frame` set prevents the same GID from being assigned to two tracks in one frame. However, if BotSort fragments one person into two tracks temporarily, one of them gets sent to the UDM — this is the intended safety behavior.
-
-### 9.4 Face Camera Toggle
-`IS_FACE_CAMERA = False` completely disables all face logic (no SCRFD, no ArcFace, no Pinecone face queries). This is designed for cameras where faces are never visible (overhead, far-away), saving GPU time.
-
-### 9.5 Embedding Dimension Mismatch
-Body embeddings are 1280-D, face embeddings are 512-D. They live in completely separate Pinecone indices and are **never compared to each other**. The only link between a body and a face is the shared `global_id` in metadata.
-
-### 9.6 Heatmap Accuracy Depends on BBox Storage
-The movement heatmap uses `best_crop_bbox` from the sighting record in MongoDB. If an older sighting was recorded before the bounding box field was added to the schema, that sighting will be silently skipped and will not appear on the heatmap. Heatmaps from mixed old/new data may therefore under-represent early appearances of a person.
-
-### 9.7 Camera Background Registration
-For the heatmap overlay to be meaningful, a background image must exist at `{CAMERA_BG_DIR}/bg_{camera_id}.png`. This file must match the exact resolution of the recorded footage. If the background is missing or mis-sized, the heatmap falls back to a plain dark canvas and positional accuracy is lost. Best practice: capture a background frame from each camera before deployment and save it with the correct naming convention.
+The default test run needs no model weights. The `models` marker covers the tests that load real weights. CI
+(`.github/workflows/ci.yml`) runs `ruff check`, `ruff format --check` and `pytest` on CPU with Python 3.11.
+`configs/default.yaml` is generated from the pydantic models (`python -m reid.config_yaml`) and a test checks that
+it is up to date.

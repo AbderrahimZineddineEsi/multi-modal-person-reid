@@ -514,7 +514,7 @@ measurement, listed in `docs/dev/changes_log.md`.
   (one person cut in two, re-joined by the identity layer).
 - **Appearance tracking costs about 40% of the speed** on the GTX 1050; it is on only in `accurate` and `max`.
 - **Offline, not live.** Videos are processed as files; live phone/IP cameras are future work
-  (to be described in `docs/future_work.md`).
+  (see `docs/future_work.md`).
 - **Privacy.** Faces and body descriptors are biometric data. v2 keeps everything local and requires a login for
   shared links, but a real deployment would need consent, retention limits and a legal basis (GDPR / Algerian law
   18-07 on personal data).
