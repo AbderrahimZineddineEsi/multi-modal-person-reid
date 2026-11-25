@@ -38,3 +38,6 @@ runs/
 
 # executed Colab notebooks (outputs contain the app password and share link)
 notebooks/*_finished*.ipynb
+
+# public showcase video (men-only, Pexels footage)
+!assets/showcase/*.mp4
