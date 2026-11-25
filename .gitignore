@@ -36,7 +36,7 @@ runs/
 .pytest_cache/
 *.egg-info/
 
-# executed Colab notebooks (outputs contain the app password and share link)
+# executed Colab/Kaggle notebooks (outputs contain the app password and share link)
 notebooks/*_finished*.ipynb
 
 # public showcase video (men-only, Pexels footage)

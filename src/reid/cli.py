@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from reid.cli_benchmark import cmd_benchmark
 from reid.config import Config, load_config
 from reid.storage import db, files
 
@@ -283,16 +284,18 @@ def cmd_dataset(args: argparse.Namespace) -> int:
     """``reid dataset fetch aicity24 --scene 075 --cameras 4 --minutes 2 --out DIR``."""
     from reid.datasets.aicity24 import fetch_aicity24, result_dict
 
+    every = args.camera_ids == "all" or args.cameras == 0
     res = fetch_aicity24(
         args.scene,
-        cameras=args.cameras,
-        camera_ids=_csv(args.camera_ids, int),
+        cameras=0 if every else args.cameras,
+        camera_ids=None if every else _csv(args.camera_ids, int),
         minutes=args.minutes if args.minutes > 0 else None,
         out=args.out,
         height=args.height or None,
         yaml_path=args.yaml,
         stream=args.stream,
         keep_raw=args.keep_raw,
+        raw_dir=args.raw_dir,
     )
     sys.stdout.write(json.dumps(result_dict(res), indent=2) + "\n")
     return 0
@@ -303,14 +306,22 @@ def _dataset_args(p: argparse.ArgumentParser) -> None:
     f = sub.add_parser("fetch", help="download and convert a labelled multi-camera subset")
     f.add_argument("name", choices=("aicity24",), help="dataset (AI City 2024 MTMC, CC-BY-4.0)")
     f.add_argument("--scene", default="075", help="scene id (071-080 are retail), default 075")
-    f.add_argument("--cameras", type=int, default=4, help="number of cameras (auto-selected)")
-    f.add_argument("--camera-ids", help="comma list of camera numbers, e.g. 700,701 (overrides)")
+    f.add_argument(
+        "--cameras", type=int, default=4, help="number of cameras (auto-selected; 0 = all)"
+    )
+    f.add_argument(
+        "--camera-ids", help="comma list of camera numbers, e.g. 700,701, or 'all' (overrides)"
+    )
     f.add_argument("--minutes", type=float, default=2.0, help="keep the first M minutes (0 = all)")
-    f.add_argument("--height", type=int, default=720, help="downscale to this height (0 = keep)")
+    f.add_argument(
+        "--height", type=int, default=720,
+        help="downscale to this height (0 = keep; with --minutes 0 too: no re-encode)",
+    )  # fmt: skip
     f.add_argument("--out", required=True, help="output directory (videos, gt.csv, meta.json)")
     f.add_argument("--yaml", help="camera YAML (default configs/cameras/aicity24_<scene>.yaml)")
     f.add_argument("--stream", action="store_true", help="let ffmpeg read only the first minutes")
     f.add_argument("--keep-raw", action="store_true", help="keep the downloaded full videos")
+    f.add_argument("--raw-dir", help="where downloads go (default OUT/raw), removed afterwards")
 
 
 cmd_dataset.add_arguments = _dataset_args  # type: ignore[attr-defined]
@@ -613,6 +624,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "virtual-cams": (cmd_virtual_cams, "derive virtual cameras from one video"),
     "app": (cmd_app, "launch the Gradio app"),
     "env": (cmd_env, "list, export, import or relink environments (Colab to PC)"),
+    "benchmark": (cmd_benchmark, "official AI City 2024 benchmark: run scenes, score with HOTA"),
     "sync": (cmd_sync, "sync environments with a Drive folder / rclone remote (PC <-> Colab)"),
     "info": (cmd_info, "print the effective config and data_dir statistics"),
 }

@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 
 from reid.config import CameraSet, CameraSpec, Config
+from reid.geometry import scale_homography
 from reid.models.gpu_memory import GpuMemoryMonitor, format_peak
 from reid.models.registry import Models, build_models
 from reid.storage import db, files
@@ -145,7 +146,16 @@ def detection_embeddings(models: Models, frame: np.ndarray, boxes: np.ndarray) -
     return models.body.embed(crops)
 
 
-def _camera_info(spec: CameraSpec, fps: float, w: int, h: int) -> CameraInfo:
+def _camera_info(
+    spec: CameraSpec, fps: float, w: int, h: int, src_size: tuple[int, int] | None = None
+) -> CameraInfo:
+    """Camera record at the processed size ``w`` x ``h``; ``src_size`` is the video's own size.
+
+    The configured homography is in source pixels, the stored one in processed pixels.
+    """
+    hom = spec.homography
+    if hom is not None and src_size is not None:
+        hom = scale_homography(hom, src_size, (w, h))
     return CameraInfo(
         id=spec.id,
         name=spec.name,
@@ -155,7 +165,7 @@ def _camera_info(spec: CameraSpec, fps: float, w: int, h: int) -> CameraInfo:
         height=h,
         start_ts=spec.start_ts,
         is_face_cam=spec.is_face_cam,
-        homography=spec.homography,
+        homography=hom,
         background_path=spec.background,
     )
 
@@ -180,11 +190,11 @@ def _process_camera(
         if fps <= 0:
             log.warning("%s: no fps in file or config, assuming 30", spec.id)
             fps = 30.0
-        w, h = processed_size(
+        src_w, src_h = (
             int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
             int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-            rt.max_side,
         )
+        w, h = processed_size(src_w, src_h, rt.max_side)
         n_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or None
         start_f = int(round(rt.start_s * fps))
         end_f = int(round(rt.end_s * fps)) if rt.end_s is not None else n_total
@@ -193,7 +203,7 @@ def _process_camera(
         todo = (end_f - start_f) if end_f is not None else 0
         if rt.max_frames is not None:
             todo = min(todo, rt.max_frames) if todo else rt.max_frames
-        db.upsert_camera(conn, cam := _camera_info(spec, fps, w, h))
+        db.upsert_camera(conn, cam := _camera_info(spec, fps, w, h, (src_w, src_h)))
         log.info("camera %s: %dx%d @ %.3f fps, frames %d..%s", spec.id, w, h, fps, start_f, end_f)
 
         tracker = Tracker(cfg.tracking)

@@ -111,6 +111,21 @@ reid env export / reid env import                                               
 Sync refuses to overwrite an environment that changed on both sides (`--force` keeps a backup).
 Details: [docs/local_app.md](docs/local_app.md).
 
+### Reproduce the official benchmark (Kaggle, 2x T4)
+
+[notebooks/kaggle_aicity_benchmark.ipynb](notebooks/kaggle_aicity_benchmark.ipynb) runs the `balanced` preset on four
+full 16-camera test scenes of the AI City 2024 Track 1 dataset, scores them with NVIDIA's official HOTA evaluator and
+saves databases, crops, 720p videos, predictions, scores and logs. Upload it to Kaggle, choose **GPU T4 x2** and
+**Internet on**, and use *Save Version, Save & Run All (Commit)*. The same steps from a terminal:
+
+```bash
+reid benchmark aicity24 run --scenes 075,078,082,086 --preset balanced --workspace data/bench
+reid benchmark aicity24 score --workspace data/bench --preset balanced   # writes RESULTS_balanced.md
+reid app --workspace data/bench
+```
+
+Results are not published yet: they will be added here once the notebook has been run.
+
 ### Command line
 
 ```bash

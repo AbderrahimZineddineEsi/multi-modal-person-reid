@@ -29,10 +29,13 @@ ruff check . && ruff format .                  # line length 100; CI runs ruff c
 reid info                                      # hardware, device plan, effective config, data_dir stats
 reid process --cameras configs/cameras/X.yaml [--preset auto|lite|balanced|accurate|max] [--data-dir D] [--set a.b=1]
 reid render | search | journey | evaluate | dataset fetch aicity24 --out D | virtual-cams | app | env | sync
+reid benchmark aicity24 run --scenes 075,078 --workspace W [--preset P] [--raw-dir R]   # whole 16-camera scenes
+reid benchmark aicity24 score --workspace W [--preset P]       # official HOTA evaluator, RESULTS_<preset>.md
 reid app --workspace data/environments         # Gradio app; --share needs a login (generated if no --auth)
 
 python -m reid.config_yaml > configs/default.yaml    # regenerate after editing src/reid/config.py
-python scripts/build_colab_notebook.py               # regenerate both notebooks in notebooks/
+python scripts/build_colab_notebook.py               # regenerate both Colab notebooks in notebooks/
+python scripts/build_kaggle_notebook.py              # regenerate notebooks/kaggle_aicity_benchmark.ipynb
 python scripts/test_notebook.py --out /tmp/nb.ipynb  # run colab_demo.ipynb locally (needs the dev extra)
 ```
 
@@ -70,6 +73,11 @@ for reasonable speed; do not run them just to check something that unit tests co
   `build(ctx)`); logic stays in `reid.*`. `state.py` holds `AppContext`. An environment is a workspace subfolder
   with its own `reid.db`; the env bar re-points the shared context. Long jobs run in threads with concurrency 1;
   renders are cached by parameters plus an assignment fingerprint. Gradio 6: theme and css go to `launch()`.
+- **AI City benchmark** (`eval/aicity_*.py`, `cli_benchmark.py`, `datasets/aicity24*.py`): `reid benchmark aicity24
+  run` per scene = fetch (full length, no re-encode, calibration -> `CameraSpec.homography`), process at 720p, our 2D
+  metrics, `aicity_export.export_predictions` (official 9-column format, floor positions through the stored
+  homography), 720p copies; `score` runs NVIDIA's evaluator (downloaded at run time, never vendored, NVIDIA licence).
+  Homographies are configured in SOURCE pixels and stored in processed pixels (`geometry.scale_homography`).
 - **Search/analytics/viz**: `search.py` (body, face, both; MATCH / AMBIGUOUS / UNKNOWN), `analytics.py` (pure
   functions over the DB), `viz/` (render, mosaic, follow-person, timeline, heatmaps), `eval/` (MOT metrics,
   held-out retrieval).
@@ -77,9 +85,11 @@ for reasonable speed; do not run them just to check something that unit tests co
 ## Conventions that matter
 
 - **Notebooks contain no pipeline logic.** They only install the package and call `reid` commands through
-  `reid.notebook.sh`. Edit `scripts/build_colab_notebook.py` and regenerate; never edit the `.ipynb` by hand.
-  `colab_demo.ipynb` is the launcher, `colab_walkthrough.ipynb` the benchmark walkthrough.
+  `reid.notebook.sh` / `run_parallel`. Edit `scripts/build_colab_notebook.py` (or `build_kaggle_notebook.py`) and
+  regenerate; never edit the `.ipynb` by hand. `colab_demo.ipynb` is the launcher, `colab_walkthrough.ipynb` the
+  benchmark walkthrough, `kaggle_aicity_benchmark.ipynb` the official 4-scene benchmark on 2x T4.
 - **Generated files:** `configs/default.yaml` (from `config.py`; a test fails if stale) and `notebooks/*.ipynb`.
+- **NVIDIA's evaluator is not vendored** (licence): `eval/aicity_official.py` downloads it at run time.
 - **Log every behavioural change** in `docs/dev/changes_log.md` in the existing format
   (`[component] v1: ... -> v2: ... Why: ...`) with measurements, and update `docs/technical_report.md` when a
   default, algorithm or schema changes. Never claim a number that was not measured.

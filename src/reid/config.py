@@ -437,7 +437,12 @@ class CameraSpec(_Section):
     start_ts: float = _f(0.0, "Epoch seconds of frame 0; 0 on all cameras means 'synchronized'.")
     is_face_cam: bool = _f(False, "Run face detection/embedding on this camera.")
     fps: float | None = _f(None, "Override the fps read from the video file.", gt=0)
-    homography: list[list[float]] | None = _f(None, "Optional 3x3 image-to-floor homography.")
+    homography: list[list[float]] | None = _f(
+        None,
+        "Optional 3x3 image-to-floor homography in the pixels of the SOURCE video "
+        "(the pipeline converts it to the processed resolution when `runtime.max_side` shrinks "
+        "the frames).",
+    )
     background: str | None = _f(
         None, "Optional background image for heatmaps (default: first frame)."
     )
