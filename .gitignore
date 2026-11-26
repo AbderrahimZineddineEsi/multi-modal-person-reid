@@ -45,3 +45,8 @@ notebooks/*_finished*.ipynb
 # Local only: downloaded Kaggle notebooks/logs (executed outputs) and personal study pages
 kaggle/
 learn/
+
+# Private docs (local only, archived in the private open-world-multicam-reid-archive repo)
+docs/dev/
+docs/v1_to_v2_report.md
+docs/todo.md

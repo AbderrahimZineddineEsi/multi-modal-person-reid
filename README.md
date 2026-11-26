@@ -92,8 +92,7 @@ Numbers, protocol and limits: [technical report §7](docs/technical_report.md). 
 
 On the 2-minute, 4-camera slice of scene 075 used for tuning (10 people), the `balanced` preset gives
 **10 identities for 10 people, none split or mixed**, cross-camera IDF1 88.3%, held-out search Rank-1 96%, at 34 fps
-on a Colab T4. How the numbers are measured, and why the earlier version's "85% accuracy" was not a real accuracy:
-[technical report](docs/technical_report.md), [v1 → v2 report](docs/v1_to_v2_report.md).
+on a Colab T4. How the numbers are measured: [technical report](docs/technical_report.md).
 
 **Real footage** (the showcase above, 8 cameras, 4 people): 4 identities with no person mixed into another,
 3 of 4 men linked across every camera they appear in (the fourth is only visible in two cameras and gets one
@@ -191,8 +190,6 @@ reid info                                         # hardware, chosen preset and 
 
 - [Technical report](docs/technical_report.md): architecture, every stage and its parameters, presets,
   evaluation protocol and results, limitations.
-- [v1 → v2 report](docs/v1_to_v2_report.md): what the first version did, what was wrong and why, what changed,
-  the measured impact, and the papers behind each part.
 - [Using the app on a PC and syncing with Colab](docs/local_app.md).
 - [Future work](docs/future_work.md): live phone / IP cameras, small-person detection, real labelled footage.
 

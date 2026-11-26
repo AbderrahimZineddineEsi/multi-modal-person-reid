@@ -2,9 +2,8 @@
 
 This is the technical description of the current system (package `reid`, version 0.2.0, branch `v2`).
 It covers what the code does, which parameters control it, which papers it follows, what was measured,
-and what is still missing. The history (what v1 did, what was wrong, what changed) is in
-[v1_to_v2_report.md](v1_to_v2_report.md) and is not repeated here. Every change with its measurements
-is in [dev/changes_log.md](dev/changes_log.md). Defaults quoted below come from
+and what is still missing. Every measured number comes from the project's internal changes log (cited below as
+"changes_log"). Defaults quoted below come from
 [`configs/default.yaml`](../configs/default.yaml) and [`configs/presets/`](../configs/presets).
 
 ## 1. System overview

@@ -14,6 +14,11 @@ Read first when relevant: `docs/technical_report.md` (how it works, parameters, 
 (design decisions), `docs/dev/changes_log.md` (every change with measurements), `docs/v1_to_v2_report.md` (history),
 `docs/local_app.md` (PC use, sync), `docs/future_work.md`.
 
+**Private docs:** `docs/dev/`, `docs/v1_to_v2_report.md` and `docs/todo.md` are git-ignored (local only) and backed
+up in the private repo `open-world-multicam-reid-archive`. Keep using and updating them locally (the changes-log
+convention below still applies), but never commit them or link to them from public files (README, technical
+report). Re-copy them into the archive repo after significant changes.
+
 ## Commands
 
 ```bash
