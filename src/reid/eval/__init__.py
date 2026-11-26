@@ -15,7 +15,8 @@ The GT is the uniform CSV written by ``reid dataset fetch`` (:mod:`reid.datasets
 are only compared on frames the run actually processed (``runtime.frame_stride`` etc.) and
 GT boxes shorter than ``min_gt_height`` pixels are ignored (nobody can detect them; set 0 to
 keep all). Results go to ``data_dir/eval/<timestamp>.json`` with the config and preset.
-Needs the ``[eval]`` extra (motmetrics, pandas).
+Needs the ``[eval]`` extra (motmetrics, pandas); imported lazily inside :func:`evaluate` so that
+the other ``reid.eval`` submodules work without it.
 """
 
 from __future__ import annotations
@@ -25,15 +26,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from reid.datasets.gt import read_gt
-from reid.eval import mot
-from reid.eval.hypothesis import (
-    infer_preset,
-    latest_run,
-    load_hypothesis,
-    processed_frame_mask,
-    run_config,
-)
 from reid.eval.report import save_result, to_markdown
 from reid.storage import db, files
 
@@ -92,6 +84,18 @@ def evaluate(
     Returns a JSON-serializable dict (not yet saved; see :func:`save_result`). ``preset`` only
     labels the report (default: inferred from the run's model choices).
     """
+    # Imported here, not at module level: they need the [eval] extra (motmetrics, pandas), and
+    # importing any reid.eval submodule (e.g. par_metrics for `reid attributes`) runs this file.
+    from reid.datasets.gt import read_gt
+    from reid.eval import mot
+    from reid.eval.hypothesis import (
+        infer_preset,
+        latest_run,
+        load_hypothesis,
+        processed_frame_mask,
+        run_config,
+    )
+
     data_dir = Path(data_dir)
     conn = db.connect(files.db_path(data_dir))
     try:
