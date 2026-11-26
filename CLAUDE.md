@@ -108,7 +108,8 @@ for reasonable speed; do not run them just to check something that unit tests co
 - **`data/` is git-ignored** (videos, weights, databases, `*.mp4`, `*.pt`, `*.onnx`, `*.zip`). Never commit them.
 - **Executed notebooks** (`notebooks/*_finished*.ipynb`) are git-ignored because their outputs contain the app
   password and share link. Do not commit notebooks with outputs.
-- **Public showcase assets (README images, GIFs, screenshots) must show only men.** This is an owner
-  requirement; check every frame before adding or publishing one.
+- **Public showcase assets (README images, GIFs, screenshots) must show only men unblurred.** This is an owner
+  requirement: every other person must be blurred (`render.blur_others`, `render.privacy_gt`); check every frame
+  before adding or publishing one.
 - Tests are CPU-only on synthetic data (`tests/synth.py`, `tests/conftest.py`); anything that needs real weights
   gets `@pytest.mark.models`.

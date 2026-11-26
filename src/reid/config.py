@@ -393,6 +393,39 @@ class RenderCfg(_Section):
     dim_alpha: float = _f(
         0.4, "Opacity of non-highlighted people when a person is highlighted.", ge=0, le=1
     )
+    spotlight_brightness: float = _f(
+        0.62,
+        "Brightness kept outside the spotlight when a person is highlighted (0 = black: only the "
+        "highlighted person stays visible).",
+        ge=0,
+        le=1,
+    )
+    spotlight_margin: float = _f(
+        1.0,
+        "Size of the soft halo kept around the highlighted person, relative to the default "
+        "(0 = only the person's box, so people standing next to them stay hidden).",
+        ge=0,
+        le=3,
+    )
+    blur_others: bool = _f(
+        False,
+        "Privacy: blur every tracked person except the highlighted one (everyone if none is "
+        "highlighted) before drawing.",
+    )
+    blur_strength: float = _f(
+        0.35, "Blur kernel size as a fraction of the box width (privacy blur).", gt=0, le=2
+    )
+    blur_keep_gids: list[int] = _f(
+        [],
+        "Privacy: identities that stay unblurred besides the highlighted one (lets a mosaic show "
+        "every person with a box while hiding everyone but these).",
+    )
+    privacy_gt: str = _f(
+        "",
+        "Privacy: optional ground-truth CSV (camera,frame,gid,x1,y1,x2,y2 in processed pixels) "
+        "whose boxes are also blurred, so people the detector missed are hidden too.",
+    )
+    privacy_keep_gt: list[int] = _f([], "Ground-truth ids in privacy_gt that are NOT blurred.")
     mosaic_tile_width: int = _f(640, "Width in pixels of one camera tile in mosaics.", ge=64)
     journey_width: int = _f(1280, "Width in pixels of follow-person clips.", ge=320)
     gif_fps: float = _f(12.0, "Frame rate of exported GIFs.", gt=0)

@@ -11,6 +11,7 @@ import functools
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import matplotlib
@@ -21,6 +22,9 @@ from reid.config import Config
 from reid.storage import db
 from reid.viz.colors import RGB, gid_color, text_on
 from reid.viz.video_io import display_resize
+
+if TYPE_CHECKING:
+    from reid.viz.privacy import PrivacyIndex
 
 _SS = 3  # chip supersampling factor
 BG_BGR = (22, 18, 15)  # dark canvas (RGB 15,18,22)
@@ -213,6 +217,12 @@ class Style:
     thickness: float = 2.0
     fill_alpha: float = 0.16
     dim_alpha: float = 0.4
+    spotlight_brightness: float = 0.62
+    spotlight_margin: float = 1.0
+    blur_others: bool = False
+    blur_strength: float = 0.35
+    blur_keep_gids: frozenset[int] = frozenset()  # never blurred (besides the highlighted gid)
+    privacy: PrivacyIndex | None = None  # extra boxes to blur, from a ground-truth CSV
     trail_len: int = 30
     hud: bool = True
     unidentified: RGB = (128, 128, 128)
@@ -224,10 +234,21 @@ class Style:
     def from_cfg(cls, cfg: Config, highlight_gid: int | None = None, gid_filter=None) -> Style:
         r = cfg.render
         unk = tuple(int(c) for c in r.unidentified_color)  # config is BGR
+        privacy = None
+        if r.privacy_gt:
+            from reid.viz.privacy import load_privacy_boxes
+
+            privacy = load_privacy_boxes(r.privacy_gt, r.privacy_keep_gt)
         return cls(
             thickness=float(r.box_thickness),
             fill_alpha=r.fill_alpha,
             dim_alpha=r.dim_alpha,
+            spotlight_brightness=r.spotlight_brightness,
+            spotlight_margin=r.spotlight_margin,
+            blur_others=r.blur_others,
+            blur_strength=r.blur_strength,
+            blur_keep_gids=frozenset(r.blur_keep_gids),
+            privacy=privacy,
             trail_len=r.trail_len,
             hud=r.show_hud,
             unidentified=(unk[2], unk[1], unk[0]),
@@ -256,6 +277,7 @@ class CameraTracks:
             raise KeyError(f"unknown camera {camera_id!r}")
         self.camera = cam
         self.trail_len = trail_len
+        self.hold = 3  # frames a stored box is kept on screen when the next frames have none
         tl = db.get_tracklets(conn, camera_id=camera_id)
         self.gid_of: dict[int, int | None] = {t.id or 0: t.gid for t in tl}
         face_gids = {i.gid for i in db.list_identities(conn) if i.has_face}
@@ -272,9 +294,17 @@ class CameraTracks:
             self._tr[int(tid)] = (p["frame"], feet)
 
     def dets_at(self, frame: int, gid_filter: frozenset[int] | None = None) -> list[Det]:
-        """People present at ``frame`` (with their recent foot trail)."""
-        lo = int(np.searchsorted(self._frames, frame, "left"))
-        hi = int(np.searchsorted(self._frames, frame, "right"))
+        """People present at ``frame`` (with their recent foot trail).
+
+        Runs processed with ``frame_stride`` > 1 store points only every n-th frame; a frame with
+        no points shows the closest earlier stored frame (up to ``self.hold`` frames back), so
+        boxes do not blink on the frames in between.
+        """
+        for back in range(self.hold + 1):
+            lo = int(np.searchsorted(self._frames, frame - back, "left"))
+            hi = int(np.searchsorted(self._frames, frame - back, "right"))
+            if hi > lo:
+                break
         out: list[Det] = []
         for r in self.pts[lo:hi]:
             tid = int(r["tracklet_id"])
@@ -302,16 +332,29 @@ class CameraTracks:
 # ------------------------------------------------------------------------------ frame drawing
 
 
-def _spotlight(frame: np.ndarray, boxes: list[tuple[float, float, float, float]]) -> None:
-    """Darken the frame, then restore a feathered ellipse around each highlighted box."""
+def _spotlight(
+    frame: np.ndarray,
+    boxes: list[tuple[float, float, float, float]],
+    brightness: float = 0.62,
+    margin: float = 1.0,
+) -> None:
+    """Darken the frame to ``brightness`` (0 = black), then restore a feathered ellipse around
+    each highlighted box, ``margin`` times the default halo (0 = exactly the box, no halo)."""
     orig = frame.copy() if boxes else None
-    frame[:] = (frame * 0.62).astype(np.uint8)
+    frame[:] = (frame * brightness).astype(np.uint8)
     if orig is None:
         return
     H, W = frame.shape[:2]
+    if margin <= 0:
+        for x1, y1, x2, y2 in boxes:
+            a, b = max(int(x1), 0), max(int(y1), 0)
+            c, d = min(int(np.ceil(x2)), W), min(int(np.ceil(y2)), H)
+            if c > a and d > b:
+                frame[b:d, a:c] = orig[b:d, a:c]
+        return
     for x1, y1, x2, y2 in boxes:
         bw, bh = x2 - x1, y2 - y1
-        mx, my = bw * 0.45 + 8, bh * 0.25 + 8
+        mx, my = (bw * 0.45 + 8) * margin, (bh * 0.25 + 8) * margin
         rx0, ry0 = max(int(x1 - mx), 0), max(int(y1 - my), 0)
         rx1, ry1 = min(int(x2 + mx), W), min(int(y2 + my), H)
         if rx1 <= rx0 or ry1 <= ry0:
@@ -365,7 +408,8 @@ def draw_dets(
         return (x1 * scale + ox, y1 * scale + oy, x2 * scale + ox, y2 * scale + oy)
 
     if hl is not None:
-        _spotlight(frame, [tbox(d) for d in dets if d.gid == hl])
+        boxes = [tbox(d) for d in dets if d.gid == hl]
+        _spotlight(frame, boxes, st.spotlight_brightness, st.spotlight_margin)
     th = line_thickness(H, st.thickness)  # in output pixels
     for d in sorted(dets, key=lambda d: (d.gid == hl, d.tracklet_id)):
         rgb = gid_color(d.gid, st.unidentified)
@@ -461,10 +505,59 @@ def draw_view(
         return img
     img, s, off = letterbox(frame, size)
     dets = tracks.dets_at(frame_idx, st.gid_filter)
+    if st.blur_others or st.privacy:
+        _privacy_blur(img, tracks.camera_id, frame_idx, dets, st, s, off)
     draw_dets(img, dets, st, s, off)
     if st.hud if hud is None else hud:
         draw_hud(img, name, t if t is not None else frame_idx / tracks.camera.fps, len(dets))
     return img
+
+
+def _privacy_blur(
+    img: np.ndarray,
+    camera_id: str,
+    frame_idx: int,
+    dets: list[Det],
+    st: Style,
+    scale: float,
+    off: tuple[float, float],
+) -> None:
+    """Blur the other people (stored boxes and the optional ground-truth boxes) in place.
+
+    The highlighted person's own box is restored afterwards, except where another person's box
+    overlaps it (someone walking right behind or in front of them stays blurred).
+    """
+    from reid.viz.privacy import blur_boxes
+
+    hl = st.highlight_gid
+    ox, oy = off
+
+    def tb(b) -> tuple[float, float, float, float]:
+        x1, y1, x2, y2 = b
+        return (x1 * scale + ox, y1 * scale + oy, x2 * scale + ox, y2 * scale + oy)
+
+    keep_gids = st.blur_keep_gids | ({hl} if hl is not None else set())
+    others = [tb(d.box) for d in dets if d.gid not in keep_gids] if st.blur_others else []
+    if st.privacy:
+        extra = st.privacy.get((camera_id, frame_idx))
+        if extra is not None:
+            others += [tb(b) for b in extra]
+    mine = [tb(d.box) for d in dets if d.gid in keep_gids]
+    orig = img.copy() if mine else None
+    blur_boxes(img, others, st.blur_strength)
+    if orig is None:
+        return
+    H, W = img.shape[:2]
+    keep = np.zeros((H, W), bool)
+    for x1, y1, x2, y2 in mine:
+        keep[
+            max(int(y1), 0) : max(int(np.ceil(y2)), 0), max(int(x1), 0) : max(int(np.ceil(x2)), 0)
+        ] = True
+    for x1, y1, x2, y2 in others:
+        keep[
+            max(int(y1), 0) : max(int(np.ceil(y2)), 0), max(int(x1), 0) : max(int(np.ceil(x2)), 0)
+        ] = False
+    img[keep] = orig[keep]
 
 
 def draw_hud_no_signal(frame: np.ndarray, name: str, t: float) -> None:

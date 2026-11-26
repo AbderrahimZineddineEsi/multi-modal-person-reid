@@ -221,7 +221,7 @@ def cmd_journey(args: argparse.Namespace) -> int:
             else files.render_path(cfg.data_dir, f"journey_gid{args.gid}.mp4")
         )
         try:
-            follow_person(conn, cfg, args.gid, out)
+            follow_person(conn, cfg, args.gid, out, start_s=args.start, end_s=args.end)
         except FileNotFoundError as exc:
             sys.stderr.write(f"reid journey: {exc}\n")
             return 1
@@ -239,6 +239,8 @@ def _journey_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--out", help="output mp4 (default data_dir/renders/journey_gid<G>.mp4)")
     p.add_argument("--gif", action="store_true", help="also export a GIF")
     p.add_argument("--no-video", action="store_true", help="only print the journey")
+    p.add_argument("--start", type=float, help="clip: start second on the shared timeline")
+    p.add_argument("--end", type=float, help="clip: end second on the shared timeline")
 
 
 cmd_journey.add_arguments = _journey_args  # type: ignore[attr-defined]

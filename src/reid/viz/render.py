@@ -179,7 +179,6 @@ def render_mosaic(
     srcs = [_open_source(cfg, c) for c in cams if c is not None]
     try:
         st = Style.from_cfg(cfg, highlight_gid)
-        tr = [CameraTracks(conn, c.id, 0, 2**31 - 1, st.trail_len) for c in cams if c]
         spans = [
             (c.start_ts, c.start_ts + s.n_frames / s.fps)
             for c, s in zip(cams, srcs, strict=True)
@@ -189,6 +188,18 @@ def render_mosaic(
         t_max = max(b for _, b in spans)
         t0 = t_min + (start_s or 0.0)
         t1 = t_max if end_s is None else min(t_max, t_min + end_s)
+        # load only the track points of the rendered window (memory does not grow with the video)
+        tr = [
+            CameraTracks(
+                conn,
+                c.id,
+                max(0, int((t0 - c.start_ts) * c.fps) - 1),
+                int(math.ceil((t1 - c.start_ts) * c.fps)) + 1,
+                st.trail_len,
+            )
+            for c in cams
+            if c
+        ]
         out_fps = cfg.render.out_fps or min(30.0, max(s.fps for s in srcs))
         tw = int(tile_width or cfg.render.mosaic_tile_width) // 2 * 2
         aspect = srcs[0].height / srcs[0].width

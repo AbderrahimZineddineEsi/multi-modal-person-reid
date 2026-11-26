@@ -12,16 +12,14 @@ card or even a CPU, keeps all data local, and ships as an installable Python pac
 web app.
 
 <p align="center">
-  <img src="assets/showcase/hero.gif" width="760" alt="One worker followed from camera to camera with the same ID">
+  <a href="assets/showcase/aicity_follow.mp4"><img src="assets/showcase/aicity_follow.gif" width="760" alt="One shopper followed across four cameras of a 16-camera store with the same ID"></a>
 </p>
 
-<p align="center">
-  <img src="assets/showcase/identities.png" width="760" alt="The four workers, each with one identity across cameras">
-</p>
-
-*Eight clips of the same four warehouse workers, filmed from eight angles. The system gives each man one
-identity: ID 1 is found in all 8 cameras and confirmed by his face; searching with a crop of each man
-taken from one camera returns the right person (4 out of 4). Footage: Pexels, see [credits](assets/showcase/CREDITS.md).*
+*One shopper (ID 6) followed through four of the 16 cameras of an AI City Challenge store: the large view cuts to
+whichever camera sees him, the timeline shows where he was seen. He keeps the same ID in every camera,
+without any training on this data. Other people were blurred to focus on the man being followed,
+but they are detected and tracked too (see the 16-camera view below).
+[Full clip](assets/showcase/aicity_follow.mp4) · footage: NVIDIA AI City 2024, CC-BY-4.0.*
 
 [![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/v2/notebooks/colab_demo.ipynb)
 
@@ -85,6 +83,14 @@ face cameras (an entrance, a till) let a face match link the fragments of a pers
 constraint, which targets exactly the main error measured here: one person split into several identities. That
 effect has not been measured on this benchmark.
 
+<p align="center">
+  <a href="assets/showcase/aicity_mosaic.mp4"><img src="assets/showcase/aicity_mosaic.jpg" width="900" alt="All 16 cameras of scene 075 with every person tracked and labelled"></a>
+</p>
+
+*All 16 cameras of scene 075 at once ([30 s video](assets/showcase/aicity_mosaic.mp4)), from the minute where
+29 of its 30 people kept a single ID. Every box and ID label is the system's own output; people are blurred to
+keep the focus on the tracking, except ID 6, the man followed in the clip at the top.*
+
 Numbers, protocol and limits: [technical report §7](docs/technical_report.md). Reproduce with the
 [Kaggle notebook](notebooks/kaggle_aicity_benchmark.ipynb) (below).
 
@@ -94,7 +100,19 @@ On the 2-minute, 4-camera slice of scene 075 used for tuning (10 people), the `b
 **10 identities for 10 people, none split or mixed**, cross-camera IDF1 88.3%, held-out search Rank-1 96%, at 34 fps
 on a Colab T4. How the numbers are measured: [technical report](docs/technical_report.md).
 
-**Real footage** (the showcase above, 8 cameras, 4 people): 4 identities with no person mixed into another,
+<p align="center">
+  <img src="assets/showcase/hero.gif" width="760" alt="One worker followed from camera to camera with the same ID">
+</p>
+
+<p align="center">
+  <img src="assets/showcase/identities.png" width="760" alt="The four workers, each with one identity across cameras">
+</p>
+
+*Eight clips of the same four warehouse workers, filmed from eight angles. The system gives each man one
+identity: ID 1 is found in all 8 cameras and confirmed by his face; searching with a crop of each man
+taken from one camera returns the right person (4 out of 4). Footage: Pexels, see [credits](assets/showcase/CREDITS.md).*
+
+**Real footage** (the clips above, 8 cameras, 4 people): 4 identities with no person mixed into another,
 3 of 4 men linked across every camera they appear in (the fourth is only visible in two cameras and gets one
 identity there), search 4/4. Processed on a laptop-class GTX 1050 (3 GB) at 8.5 fps with the default `balanced` preset.
 

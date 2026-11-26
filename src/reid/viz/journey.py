@@ -174,23 +174,40 @@ def _ramp(frame: np.ndarray, a: float) -> None:
 # ------------------------------------------------------------------------------ main entry
 
 
+def _frame_window(cam, lo: float, hi: float) -> tuple[int, int]:
+    """Frame range of ``cam`` covering the shared-time window ``[lo, hi]`` (open ends allowed)."""
+    f0 = 0 if not np.isfinite(lo) else max(0, int((lo - cam.start_ts) * cam.fps) - 1)
+    f1 = 2**31 - 1 if not np.isfinite(hi) else int(np.ceil((hi - cam.start_ts) * cam.fps)) + 1
+    return f0, max(f1, f0)
+
+
 def follow_person(
     conn: sqlite3.Connection,
     cfg: Config,
     gid: int,
     out_path: str | Path,
     progress: ProgressFn | None = None,
+    start_s: float | None = None,
+    end_s: float | None = None,
 ) -> Path:
     """Render a clip that follows ``gid`` across cameras, in time order.
+
+    ``start_s`` / ``end_s`` (shared-timeline seconds) keep only that window of the journey.
 
     The active camera is shown large with the person spotlighted, the other cameras sit in a
     strip on the right (same instant), and a timeline at the bottom shows the person's presence
     per camera with a moving playhead. A caption announces every cut ("-> cam_02, +4.2 s").
     """
-    segs = plan_segments(conn, gid)
+    lo = -np.inf if start_s is None else float(start_s)
+    hi = np.inf if end_s is None else float(end_s)
+    segs = [s for s in plan_segments(conn, gid) if s.t1 > lo and s.t0 < hi]
+    for i, s in enumerate(segs):
+        s.t0, s.t1 = max(s.t0, lo), min(s.t1, hi)
+        if i == 0:
+            s.gap_s = None
     if not segs:
-        raise ValueError(f"identity {gid} has no tracklets")
-    steps = analytics.journey(conn, gid)
+        raise ValueError(f"identity {gid} has no tracklets in the requested window")
+    steps = [s for s in analytics.journey(conn, gid) if s.end_ts > lo and s.start_ts < hi]
     cams = {c.id: c for c in db.list_cameras(conn)}
     rgb = gid_color(gid)
     st = Style.from_cfg(cfg, highlight_gid=gid)
@@ -199,7 +216,8 @@ def follow_person(
         for cid, c in cams.items()
     }
     try:
-        tracks = {cid: CameraTracks(conn, cid, 0, 2**31 - 1, st.trail_len) for cid in cams}
+        tracks = {cid: CameraTracks(conn, cid, *_frame_window(c, lo, hi), st.trail_len)
+                  for cid, c in cams.items()}  # fmt: skip
         aspect = srcs[segs[0].camera_id].height / srcs[segs[0].camera_id].width
         W = cfg.render.journey_width // 2 * 2
         m = 12
@@ -214,11 +232,11 @@ def follow_person(
         tile_w = int(tile_h / aspect) // 2 * 2
         tile_h = tile_h // 2 * 2
 
-        t_lo = min(s.start_ts for s in steps)
-        t_hi = max(s.end_ts for s in steps)
+        t_lo = max(min(s.start_ts for s in steps), lo)
+        t_hi = min(max(s.end_ts for s in steps), hi)
         presence: dict[str, list[tuple[float, float]]] = {}
         for s in steps:
-            presence.setdefault(s.camera_id, []).append((s.start_ts, s.end_ts))
+            presence.setdefault(s.camera_id, []).append((max(s.start_ts, lo), min(s.end_ts, hi)))
         tl_img, geo = _timeline_bg(
             (W - 2 * m, tl_h), [(c.id, c.name) for c in cams.values()], presence, t_lo, t_hi, rgb
         )

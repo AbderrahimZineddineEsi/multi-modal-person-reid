@@ -28,3 +28,11 @@ Processing: `reid process --preset balanced --set consolidation.merge_threshold=
 - `app_explore.png`: Explore tab for Person 1 (journey list across cameras and presence-over-time chart).
 - `app_search.png`: Search tab, a body-photo query (held-out frame from one camera) matched to Person 1.
 - `app_metrics.png`: Metrics tab (speed, GPU memory, time per stage).
+
+## AI City Challenge clips (`aicity_follow.*`, `aicity_mosaic.*`)
+
+Footage: NVIDIA AI City Challenge 2024, Track 1, test scene 075 (synthetic people), from the
+[PhysicalAI-SmartSpaces](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces) dataset, CC-BY-4.0.
+Rendered from this system's own tracking output (`balanced` preset, Kaggle T4), scene time 4:50-5:20 (mosaic) and
+4:50-5:32 (follow clip). Every person except the followed man (ID 6) is blurred with `render.blur_others` and
+`render.privacy_gt` (the dataset's own person boxes, so people the detector missed are blurred too).

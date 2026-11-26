@@ -278,3 +278,91 @@ def test_spotlight_brightness_zero_hides_everything_else():
     dimmed = np.full((50, 50, 3), 200, np.uint8)
     _spotlight(dimmed, [], 0.62)
     assert int(dimmed[0, 0, 0]) == 124  # default behaviour unchanged
+
+
+def test_spotlight_margin_zero_keeps_only_the_box():
+    import numpy as np
+
+    from reid.viz.draw import _spotlight
+
+    frame = np.full((200, 300, 3), 200, np.uint8)
+    _spotlight(frame, [(100.0, 50.0, 140.0, 150.0)], 0.0, 0.0)
+    assert frame[100, 120].min() == 200  # inside the box: untouched
+    assert frame[100, 150].max() == 0 and frame[45, 120].max() == 0  # just outside: black
+
+
+def test_privacy_blur_blurs_others_and_keeps_the_highlighted(tmp_path):
+    import numpy as np
+
+    from reid.viz.privacy import blur_boxes, load_privacy_boxes
+
+    rng = np.random.default_rng(0)
+    img = rng.integers(0, 255, (100, 200, 3), dtype=np.uint8)
+    before = img.copy()
+    blur_boxes(img, [(10.0, 10.0, 50.0, 90.0)], 0.35)
+    assert np.abs(img[20:80, 15:45].astype(int) - before[20:80, 15:45]).mean() > 10  # blurred
+    assert (img[:, 120:] == before[:, 120:]).all()  # elsewhere untouched
+    csv = tmp_path / "gt.csv"
+    csv.write_text("camera,frame,gid,x1,y1,x2,y2\ncam_a,5,1,0,0,10,20\ncam_a,5,2,30,0,40,20\n")
+    idx = load_privacy_boxes(csv, keep=[2])
+    assert len(idx) == 1 and len(idx.get(("cam_a", 5))) == 1  # id 2 kept unblurred
+    assert idx.get(("cam_a", 6)) is None and idx.get(("cam_b", 5)) is None
+
+
+def test_dets_at_holds_boxes_between_strided_frames():
+    """frame_stride 2 stores points on even frames only; odd frames must still show the box."""
+    import numpy as np
+
+    from reid.viz.draw import CameraTracks
+
+    dt = [
+        ("tracklet_id", "i8"),
+        ("frame", "i8"),
+        ("x1", "f4"),
+        ("y1", "f4"),
+        ("x2", "f4"),
+        ("y2", "f4"),
+    ]
+    pts = np.array([(1, f, 0, 0, 10, 20) for f in range(0, 20, 2)], dtype=dt)
+    trk = object.__new__(CameraTracks)
+    trk.pts, trk._frames, trk.gid_of, trk.face_gids = pts, pts["frame"], {1: 5}, set()
+    trk.trail_len, trk.hold = 30, 3
+    trk._tr = {1: (pts["frame"], np.zeros((len(pts), 2)))}
+    assert [d.gid for d in trk.dets_at(4)] == [5]
+    assert [d.gid for d in trk.dets_at(5)] == [5]  # odd frame: held from frame 4
+    assert trk.dets_at(30) == []  # long after the tracklet ended: nothing
+
+
+def test_blur_keep_gids_blurs_everyone_else_and_keeps_own_box_sharp():
+    """No highlight: blur_keep_gids stay sharp; overlap outside the kept box does not blur it."""
+    import numpy as np
+
+    from reid.viz.draw import Det, Style, _privacy_blur
+
+    rng = np.random.default_rng(1)
+    base = rng.integers(0, 255, (120, 300, 3), dtype=np.uint8)
+    keep, other, near = (
+        (20.0, 20.0, 60.0, 110.0),
+        (200.0, 20.0, 240.0, 110.0),
+        (64.0, 20.0, 100.0, 110.0),
+    )
+
+    def det(gid, box, tid):
+        return Det(tid, gid, box, np.zeros((0, 2)))
+
+    st = Style(blur_others=True, blur_strength=0.35, blur_keep_gids=frozenset({6}))
+    img = base.copy()
+    _privacy_blur(
+        img, "c", 0, [det(6, keep, 1), det(7, other, 2), det(8, near, 3)], st, 1.0, (0, 0)
+    )
+
+    def diff(b):
+        return np.abs(
+            img[b[1] : b[3], b[0] : b[2]].astype(int) - base[b[1] : b[3], b[0] : b[2]]
+        ).mean()
+
+    assert (
+        diff((20, 20, 60, 110)) == 0
+    )  # kept person: sharp, though a blur halo of "near" reaches it
+    assert diff((205, 30, 235, 100)) > 10  # other person: blurred
+    assert diff((70, 30, 95, 100)) > 10  # neighbour: blurred

@@ -309,6 +309,25 @@ render:
   fill_alpha: 0.16
   # Opacity of non-highlighted people when a person is highlighted. (default: 0.4)
   dim_alpha: 0.4
+  # Brightness kept outside the spotlight when a person is highlighted (0 = black: only the
+  # highlighted person stays visible). (default: 0.62)
+  spotlight_brightness: 0.62
+  # Size of the soft halo kept around the highlighted person, relative to the default (0 = only
+  # the person's box, so people standing next to them stay hidden). (default: 1.0)
+  spotlight_margin: 1.0
+  # Privacy: blur every tracked person except the highlighted one (everyone if none is
+  # highlighted) before drawing. (default: false)
+  blur_others: false
+  # Blur kernel size as a fraction of the box width (privacy blur). (default: 0.35)
+  blur_strength: 0.35
+  # Privacy: identities that stay unblurred besides the highlighted one (lets a mosaic show
+  # every person with a box while hiding everyone but these). (default: [])
+  blur_keep_gids: []
+  # Privacy: optional ground-truth CSV (camera,frame,gid,x1,y1,x2,y2 in processed pixels) whose
+  # boxes are also blurred, so people the detector missed are hidden too. (default: "")
+  privacy_gt: ""
+  # Ground-truth ids in privacy_gt that are NOT blurred. (default: [])
+  privacy_keep_gt: []
   # Width in pixels of one camera tile in mosaics. (default: 640)
   mosaic_tile_width: 640
   # Width in pixels of follow-person clips. (default: 1280)
