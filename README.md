@@ -1,4 +1,6 @@
-# Multi-camera person re-identification with face confirmation
+# Open-World Multimodal Multi-Camera Person Re-ID
+
+*Body and face re-identification across cameras, for people it has never seen before.*
 
 **Who walked where?** This system follows people across several cameras that do not see each other,
 gives each person one identity, confirms identities with faces when a face is visible, and lets you
@@ -17,7 +19,7 @@ graduation project, rewritten as an installable package with a CLI, a web app an
 identity: ID 1 is found in all 8 cameras and confirmed by his face; searching with a crop of each man
 taken from one camera returns the right person (4 out of 4). Footage: Pexels, see [credits](assets/showcase/CREDITS.md).*
 
-[![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/multi-modal-person-reid/blob/v2/notebooks/colab_demo.ipynb)
+[![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/v2/notebooks/colab_demo.ipynb)
 
 ---
 
@@ -109,7 +111,7 @@ environments). Public links require a login.
 
 ### On Colab (free GPU)
 
-Open the [launcher notebook](https://colab.research.google.com/github/AbderrahimZineddineEsi/multi-modal-person-reid/blob/v2/notebooks/colab_demo.ipynb),
+Open the [launcher notebook](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/v2/notebooks/colab_demo.ipynb),
 choose a T4 runtime and run all cells. It installs the package, mounts Google Drive (your data persists
 there) and prints a public link and a login for the app. Processing happens from the app.
 [colab_walkthrough.ipynb](notebooks/colab_walkthrough.ipynb) reproduces the benchmark step by step.
@@ -117,8 +119,8 @@ there) and prints a public link and a login for the app. Processing happens from
 ### On your own computer
 
 ```bash
-git clone -b v2 https://github.com/AbderrahimZineddineEsi/multi-modal-person-reid.git
-cd multi-modal-person-reid
+git clone -b v2 https://github.com/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid.git
+cd open-world-multimodal-multicam-reid
 uv venv -p 3.12 && source .venv/bin/activate
 uv pip install -e ".[models,app,eval]"     # GTX 10xx: install torch from the cu126 index first (pyproject.toml)
 reid app --workspace data/environments      # opens the app at http://127.0.0.1:7860

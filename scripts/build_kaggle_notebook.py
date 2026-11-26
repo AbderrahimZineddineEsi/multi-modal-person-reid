@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO_URL = "https://github.com/AbderrahimZineddineEsi/multi-modal-person-reid"
+REPO_URL = "https://github.com/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid"
 NB_PATH = Path(__file__).resolve().parents[1] / "notebooks" / "kaggle_aicity_benchmark.ipynb"
 
 cells: list[dict] = []
