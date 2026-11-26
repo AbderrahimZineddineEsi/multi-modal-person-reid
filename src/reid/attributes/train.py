@@ -4,9 +4,11 @@ Loss: per label ``j`` with positive ratio ``r_j`` over the known training target
 weighted ``exp(1 - r_j)`` and negatives ``exp(r_j)`` (``ratio2weight`` of Rethinking_of_PAR, Tan et
 al. AAAI 2020 lineage); unknown targets (-1) are masked and the sum is divided by the number of
 known targets. Labels with fewer than ``min_pos`` training positives are not trained (masked out
-entirely). Early stopping and the model choice use validation mA only (mean of the datasets'
-val mA); the test split is never read here. Per-label thresholds maximise balanced accuracy on
-validation.
+entirely). Early stopping, the model choice and the HPO objective use the **validation score**:
+the mean over the datasets of the validation mA at threshold 0.5, computed over the trained
+labels **excluding the three ``view_*`` labels**, so that runs with and without viewpoint
+training are compared on the same label set (step 1 included the view labels). The test split is
+never read here. Per-label thresholds maximise balanced accuracy on validation.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import copy
 import logging
 import random
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -29,6 +32,8 @@ from reid.eval.par_metrics import mean_accuracy
 
 log = logging.getLogger(__name__)
 DATASETS = ("pa100k", "peta")
+VIEW_COLS = np.array([j for j, g in enumerate(GROUPS) if g == "view"])
+WEIGHTINGS = ("ratio", "none")
 
 
 @dataclass
@@ -45,6 +50,9 @@ class TrainConfig:
     peta_weight: float = 1.0  # loss multiplier of PETA rows (1.0 = natural mixing)
     seed: int = 0
     min_pos: int = 10
+    weighting: str = "ratio"  # "ratio" = exp(1 - r) / exp(r); "none" = all weights 1
+    use_flips: bool = True  # False drops the flipped training rows
+    train_view: bool = True  # False masks the view_* labels in training (viewpoint ablation)
 
 
 @dataclass
@@ -56,6 +64,7 @@ class TrainData:
     ds: np.ndarray  # int (M,) index into DATASETS
     val: dict[str, tuple[np.ndarray, np.ndarray]]  # dataset -> (x float16, targets)
     train_pos: np.ndarray  # positives per label over original (unflipped) train images
+    flip: np.ndarray  # bool (M,) True for the horizontally flipped copies
 
 
 def _clean(x: np.ndarray, t: np.ndarray) -> np.ndarray:
@@ -69,7 +78,7 @@ def _clean(x: np.ndarray, t: np.ndarray) -> np.ndarray:
 
 def load_train_data(emb_dir: str | Path) -> TrainData:
     """Concatenate the train (original + flipped) rows of the datasets found; val separately."""
-    xs, ts, dss, val = [], [], [], {}
+    xs, ts, dss, fls, val = [], [], [], [], {}
     pos = np.zeros(N_LABELS, np.int64)
     for di, name in enumerate(DATASETS):
         avail = store.available_splits(emb_dir, name)
@@ -81,12 +90,14 @@ def load_train_data(emb_dir: str | Path) -> TrainData:
         xs.append(tr.x)
         ts.append(t)
         dss.append(np.full(len(tr.x), di))
+        fls.append(tr.flip)
         pos += (t[~tr.flip] == 1).sum(0)
         va = store.load_split(emb_dir, name, "val", include_flips=False)
         val[name] = (va.x, _clean(va.x, va.row_targets))
     if not xs:
         raise FileNotFoundError(f"no train/val embeddings in {emb_dir}")
-    return TrainData(np.concatenate(xs), np.concatenate(ts), np.concatenate(dss), val, pos)
+    x, t, ds, flip = (np.concatenate(a) for a in (xs, ts, dss, fls))
+    return TrainData(x, t, ds, val, pos, flip)
 
 
 def label_weights(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -147,29 +158,54 @@ def _val_ma(model, data: TrainData, cols: np.ndarray, device) -> dict[str, float
     }
 
 
+def val_columns(trained: np.ndarray) -> np.ndarray:
+    """Labels of the validation score: trained labels without the ``view_*`` ones."""
+    return np.flatnonzero(trained & ~np.isin(np.arange(N_LABELS), VIEW_COLS))
+
+
 def train_head(
-    data: TrainData, cfg: TrainConfig, body_model: str = "", neck_feat: str = ""
+    data: TrainData,
+    cfg: TrainConfig,
+    body_model: str = "",
+    neck_feat: str = "",
+    on_epoch: Callable[[int, float], None] | None = None,
 ) -> HeadParams:
-    """Train with early stopping on validation mA and return the best model as ``HeadParams``."""
+    """Train with early stopping on the validation score and return the best model.
+
+    The validation score is the mean over datasets of the validation mA (threshold 0.5) over the
+    trained labels excluding ``view_*`` (see the module docstring). ``on_epoch(epoch, score)`` is
+    called after every epoch; an exception raised from it (Optuna's ``TrialPruned``) stops the
+    training and propagates. With ``cfg.train_view`` False the view labels are masked in training
+    and flagged as not trained in the returned head.
+    """
+    if cfg.weighting not in WEIGHTINGS:
+        raise ValueError(f"weighting must be one of {WEIGHTINGS}, got {cfg.weighting!r}")
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)  # noqa: NPY002
     torch.manual_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     trained = data.train_pos >= cfg.min_pos
-    cols = np.flatnonzero(trained)
-    log.info("training %d of %d labels (%d rows)", len(cols), N_LABELS, len(data.x))
-    pw, nw = (torch.from_numpy(a).to(device) for a in label_weights(data.t))
+    if not cfg.train_view:
+        trained = trained & ~np.isin(np.arange(N_LABELS), VIEW_COLS)
+    cols = val_columns(trained)
+    keep = slice(None) if cfg.use_flips else ~data.flip
+    xk, tk, dk = data.x[keep], data.t[keep], data.ds[keep]
+    log.info("training %d of %d labels (%d rows)", int(trained.sum()), N_LABELS, len(xk))
+    if cfg.weighting == "ratio":
+        pw, nw = (torch.from_numpy(a).to(device) for a in label_weights(tk))
+    else:
+        pw = nw = torch.ones(N_LABELS, device=device)
     tr_mask = torch.from_numpy(trained).to(device)
-    x = torch.from_numpy(data.x).to(device)
-    t = torch.from_numpy(data.t.astype(np.int64)).to(device)
+    x = torch.from_numpy(xk).to(device)
+    t = torch.from_numpy(tk.astype(np.int64)).to(device)
     sw = torch.where(
-        torch.from_numpy(data.ds).to(device) == DATASETS.index("peta"), cfg.peta_weight, 1.0
+        torch.from_numpy(dk).to(device) == DATASETS.index("peta"), cfg.peta_weight, 1.0
     ).float()
     model = MLPHead(x.shape[1], N_LABELS, cfg.hidden, cfg.dropout).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     gen = torch.Generator().manual_seed(cfg.seed)
-    best, best_state, bad, history = -1.0, None, 0, []
+    best, best_state, best_epoch, best_vma, bad, history = -1.0, None, -1, {}, 0, []
     for epoch in range(cfg.epochs):
         model.train()
         order = torch.randperm(len(x), generator=gen).to(device)
@@ -190,8 +226,11 @@ def train_head(
             {"epoch": epoch, "loss": total / max(nb, 1), "val_ma": vma, "val_ma_mean": score}
         )
         log.info("epoch %d loss %.4f val mA %s mean %.4f", epoch, total / max(nb, 1), vma, score)
+        if on_epoch is not None:
+            on_epoch(epoch, score)
         if score > best:
             best, bad, best_state = score, 0, copy.deepcopy(model.state_dict())
+            best_epoch, best_vma = epoch, vma
         else:
             bad += 1
             if bad >= cfg.patience:
@@ -202,7 +241,10 @@ def train_head(
     vx = np.concatenate([v[0] for v in data.val.values()])
     vt = np.concatenate([v[1] for v in data.val.values()])
     thr = tune_thresholds(_predict(model, vx, device), vt, trained)
-    hp = {**asdict(cfg), "in_dim": int(x.shape[1]), "best_val_ma": best, "device": str(device)}
+    hp = {
+        **asdict(cfg), "in_dim": int(x.shape[1]), "best_val_ma": best, "best_epoch": best_epoch,
+        "best_val_ma_by_dataset": best_vma, "device": str(device),
+    }  # fmt: skip
     return model.to_params(
         labels=list(LABELS), groups=list(GROUPS), thresholds=thr, trained_labels=trained,
         body_model=body_model, neck_feat=neck_feat, hparams=hp, train_log=history,

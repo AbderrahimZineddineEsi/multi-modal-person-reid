@@ -1,8 +1,9 @@
-"""``reid attributes fetch|embed|train|report``: the pedestrian attribute head.
+"""``reid attributes fetch|embed|train|report|hpo|hpo-final``: the pedestrian attribute head.
 
 ``fetch`` downloads PA-100K and PETA; ``embed`` embeds every image once with the frozen body
 ReID model (resumable shards); ``train`` fits the MLP head on the stored embeddings; ``report``
-evaluates it on the test splits (see :mod:`reid.attributes`).
+evaluates it on the test splits; ``hpo`` searches the head's hyperparameters with Optuna and
+``hpo-final`` compares default and best on several seeds (see :mod:`reid.attributes`).
 """
 
 from __future__ import annotations
@@ -14,16 +15,18 @@ from pathlib import Path
 
 
 def cmd_attributes(args: argparse.Namespace) -> int:
-    """Dispatch ``reid attributes fetch|embed|train|report``."""
+    """Dispatch ``reid attributes fetch|embed|train|report|hpo|hpo-final``."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
         stream=sys.stderr,
     )
-    return {"fetch": _fetch, "embed": _embed, "train": _train, "report": _report}[args.attr_cmd](
-        args
-    )
+    cmds = {
+        "fetch": _fetch, "embed": _embed, "train": _train, "report": _report,
+        "hpo": _hpo, "hpo-final": _hpo_final,
+    }  # fmt: skip
+    return cmds[args.attr_cmd](args)
 
 
 def _fetch(args: argparse.Namespace) -> int:
@@ -74,8 +77,36 @@ def _train(args: argparse.Namespace) -> int:
     cfg = TrainConfig(
         hidden=args.hidden, dropout=args.dropout, lr=args.lr, wd=args.wd, batch=args.batch,
         epochs=args.epochs, patience=args.patience, peta_weight=args.peta_weight, seed=args.seed,
+        weighting=args.weighting, use_flips=args.use_flips, train_view=args.train_view,
     )  # fmt: skip
     path = run_train(args.emb, args.out, cfg)
+    sys.stdout.write(f"wrote {path}\n")
+    return 0
+
+
+def _hpo(args: argparse.Namespace) -> int:
+    from reid.attributes.hpo import run_hpo
+
+    try:
+        study = run_hpo(
+            args.emb, args.out, name=args.study, trials=args.trials,
+            timeout_min=args.timeout_min, seed=args.seed, worker=args.worker,
+        )  # fmt: skip
+    except (ImportError, FileNotFoundError) as exc:
+        sys.stderr.write(f"reid attributes hpo: {exc}\n")
+        return 1
+    sys.stdout.write(f"study {args.study}: {len(study.trials)} trials in {args.out}\n")
+    return 0
+
+
+def _hpo_final(args: argparse.Namespace) -> int:
+    from reid.attributes.hpo_report import run_hpo_final
+
+    try:
+        path = run_hpo_final(args.emb, args.out, args.study, args.seeds)
+    except (ImportError, FileNotFoundError, RuntimeError, KeyError) as exc:
+        sys.stderr.write(f"reid attributes hpo-final: {exc}\n")
+        return 1
     sys.stdout.write(f"wrote {path}\n")
     return 0
 
@@ -120,6 +151,25 @@ def _attributes_args(p: argparse.ArgumentParser) -> None:
     t.add_argument("--patience", type=int, default=8)
     t.add_argument("--peta-weight", type=float, default=1.0)
     t.add_argument("--seed", type=int, default=0)
+    t.add_argument("--weighting", choices=("ratio", "none"), default="ratio",
+                   help="ratio = exp(1-r)/exp(r) label weights; none = all 1")  # fmt: skip
+    t.add_argument("--use-flips", action=argparse.BooleanOptionalAction, default=True,
+                   help="train on the flipped copies too (default yes)")  # fmt: skip
+    t.add_argument("--train-view", action=argparse.BooleanOptionalAction, default=True,
+                   help="train the view_* labels (default yes)")  # fmt: skip
+    h = sub.add_parser("hpo", help="Optuna search of the head's hyperparameters (needs [train])")
+    h.add_argument("--emb", required=True, metavar="DIR")
+    h.add_argument("--out", required=True, metavar="DIR", help="journal, study and results here")
+    h.add_argument("--study", default="attr_hpo")
+    h.add_argument("--trials", type=int, default=100, help="trials of THIS process")
+    h.add_argument("--timeout-min", type=float, default=None, help="minutes, this process")
+    h.add_argument("--seed", type=int, default=0, help="sampler seed (+ --worker)")
+    h.add_argument("--worker", type=int, default=0, help="process index (one per GPU)")
+    hf = sub.add_parser("hpo-final", help="default vs best on several seeds, test read here")
+    hf.add_argument("--emb", required=True, metavar="DIR")
+    hf.add_argument("--out", required=True, metavar="DIR", help="the `hpo --out` folder")
+    hf.add_argument("--study", default="attr_hpo")
+    hf.add_argument("--seeds", type=int, default=3)
     r = sub.add_parser("report", help="test-set metrics, per-label table, voting curve")
     r.add_argument("--emb", required=True, metavar="DIR")
     r.add_argument("--head", required=True, metavar="PATH", help="head.npz or its folder")

@@ -46,6 +46,8 @@ app = [
 # only uses motmetrics' accumulator and metrics, which work on NumPy 2 / pandas 2.
 eval = ["motmetrics>=1.4", "pandas>=1.5", "huggingface_hub>=0.24"]
 faiss = ["faiss-cpu>=1.7"]
+# Optuna hyperparameter search of the attribute head (`reid attributes hpo`); pandas: trials.csv
+train = ["optuna>=4.0", "pandas>=1.5"]
 dev = ["pytest>=8", "ruff>=0.5", "nbclient>=0.10", "ipykernel>=6"]  # ipykernel/nbclient: scripts/test_notebook.py
 
 [project.scripts]

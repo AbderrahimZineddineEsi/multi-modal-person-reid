@@ -132,3 +132,119 @@ def test_tune_thresholds_maximises_balanced_accuracy():
     assert ((p[:, 0] > thr[0]) == (y[:, 0] == 1)).all()  # separates 0.35 from 0.3
     assert 0.3 <= thr[0] <= 0.35
     assert train.tune_thresholds(p, y, np.array([False]))[0] == 0.5  # untrained label
+
+
+def _spy_loss(monkeypatch):
+    """Record the arguments of every ``masked_bce`` call made by ``train_head``."""
+    calls = []
+    real = train.masked_bce
+
+    def spy(logits, t, pw, nw, trained, sample_w=None):
+        calls.append((t.clone(), pw.clone(), nw.clone(), trained.clone()))
+        return real(logits, t, pw, nw, trained, sample_w)
+
+    monkeypatch.setattr(train, "masked_bce", spy)
+    return calls
+
+
+def test_defaults_reproduce_step1_training(tmp_path, monkeypatch):
+    cfg = train.TrainConfig()
+    assert (cfg.weighting, cfg.use_flips, cfg.train_view) == ("ratio", True, True)
+    make_all(tmp_path, with_test=False)
+    data = train.load_train_data(tmp_path)
+    assert data.flip.sum() == len(data.x) // 2 and len(data.flip) == len(data.x)
+    calls = _spy_loss(monkeypatch)
+    one = train.TrainConfig(hidden=16, epochs=1, batch=4096)
+    train.train_head(data, one)
+    t, pw, nw, trained = calls[0]
+    assert len(t) == len(data.x)  # flipped rows included
+    exp_pw, exp_nw = train.label_weights(data.t)
+    np.testing.assert_allclose(pw.numpy(), exp_pw)
+    np.testing.assert_allclose(nw.numpy(), exp_nw)
+    np.testing.assert_array_equal(trained.numpy(), data.train_pos >= one.min_pos)
+
+
+def test_use_flips_false_drops_flipped_rows(tmp_path, monkeypatch):
+    make_all(tmp_path, with_test=False)
+    data = train.load_train_data(tmp_path)
+    calls = _spy_loss(monkeypatch)
+    head = train.train_head(
+        data, train.TrainConfig(hidden=16, epochs=1, batch=4096, use_flips=False)
+    )
+    assert len(calls[0][0]) == int((~data.flip).sum()) == len(data.x) // 2
+    assert head.hparams["use_flips"] is False
+
+
+def test_train_view_false_masks_view_labels(tmp_path, monkeypatch):
+    make_all(tmp_path, with_test=False)
+    data = train.load_train_data(tmp_path)
+    view = [INDEX[n] for n in ("view_front", "view_side", "view_back")]
+    assert (train.VIEW_COLS == view).all()
+    data.t[:, view[0]] = (data.x[:, 5] > 0).astype(np.int8)  # a view label with plenty of positives
+    data.train_pos[view[0]] = 100
+    for tv in (True, False):
+        calls = _spy_loss(monkeypatch)
+        head = train.train_head(data, train.TrainConfig(hidden=16, epochs=1, train_view=tv))
+        assert bool(calls[0][3][view[0]]) is tv and bool(head.trained_labels[view[0]]) is tv
+    # masked in the loss: the view logits get exactly zero gradient
+    logits = torch.randn(8, N_LABELS, requires_grad=True)
+    t = torch.randint(0, 2, (8, N_LABELS))
+    on = torch.ones(N_LABELS, dtype=torch.bool)
+    on[view] = False
+    train.masked_bce(logits, t, torch.ones(N_LABELS), torch.ones(N_LABELS), on).backward()
+    assert (logits.grad[:, view] == 0).all() and (logits.grad[:, 0] != 0).any()
+
+
+def test_validation_score_excludes_view_labels(tmp_path):
+    make_all(tmp_path, with_test=False)
+    data = train.load_train_data(tmp_path)
+    view = [INDEX[n] for n in ("view_front", "view_side", "view_back")]
+    trained = np.zeros(N_LABELS, bool)
+    trained[[INDEX["hat"], *view]] = True
+    assert list(train.val_columns(trained)) == [INDEX["hat"]]
+    assert data.val  # sanity
+
+
+def test_weighting_none_is_unweighted_bce(tmp_path, monkeypatch):
+    torch.manual_seed(1)
+    logits = torch.randn(32, N_LABELS)
+    t = torch.randint(-1, 2, (32, N_LABELS))
+    ones = torch.ones(N_LABELS)
+    on = torch.ones(N_LABELS, dtype=torch.bool)
+    known = t != -1
+    ref = torch.nn.functional.binary_cross_entropy_with_logits(
+        logits[known], (t[known] == 1).float()
+    )
+    assert torch.allclose(train.masked_bce(logits, t, ones, ones, on), ref, atol=1e-6)
+    make_all(tmp_path, with_test=False)
+    data = train.load_train_data(tmp_path)
+    calls = _spy_loss(monkeypatch)
+    train.train_head(data, train.TrainConfig(hidden=16, epochs=1, weighting="none"))
+    assert (calls[0][1] == 1).all() and (calls[0][2] == 1).all()
+    with pytest.raises(ValueError):
+        train.train_head(data, train.TrainConfig(weighting="bogus"))
+
+
+def test_on_epoch_callback_gets_validation_score_and_can_stop(tmp_path):
+    make_all(tmp_path, with_test=False)
+    data = train.load_train_data(tmp_path)
+    seen = []
+    head = train.train_head(
+        data, train.TrainConfig(hidden=16, epochs=5, patience=9, batch=128),
+        on_epoch=lambda e, s: seen.append((e, s)),
+    )  # fmt: skip
+    assert [e for e, _ in seen] == list(range(5)) == [r["epoch"] for r in head.train_log]
+    assert [s for _, s in seen] == [r["val_ma_mean"] for r in head.train_log]
+
+    class Stop(Exception):
+        pass
+
+    def boom(epoch, score):
+        seen.append(epoch)
+        if epoch == 2:
+            raise Stop
+
+    seen.clear()
+    with pytest.raises(Stop):
+        train.train_head(data, train.TrainConfig(hidden=16, epochs=9, batch=128), on_epoch=boom)
+    assert seen == [0, 1, 2]
