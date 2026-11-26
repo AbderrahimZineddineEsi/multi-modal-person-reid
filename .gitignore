@@ -41,3 +41,7 @@ notebooks/*_finished*.ipynb
 
 # public showcase video (men-only, Pexels footage)
 !assets/showcase/*.mp4
+
+# Local only: downloaded Kaggle notebooks/logs (executed outputs) and personal study pages
+kaggle/
+learn/
