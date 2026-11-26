@@ -109,7 +109,6 @@ notebook* (its `attributes/emb` folder holds the embeddings). Use **Save Version
 md("## 1. Settings")
 code(
     """
-import glob
 import os
 
 REID_REF = "attributes"  # branch or tag of the repository to install
@@ -162,21 +161,51 @@ md("""
 ## 3. Find the embeddings
 
 Looks for the first folder under `/kaggle/input` that contains both `pa100k/train/index.json` and
-`peta/train/index.json` (the embedding folder written by the previous notebook). Set `EMB` above
-to use another folder.
+`peta/train/index.json` (the embedding folder written by the previous notebook), following
+symbolic links (Kaggle mounts inputs in different places depending on the input type). It prints
+what is mounted under `/kaggle/input`, so you can see where an input went. Set `EMB` above to use
+another folder.
+
+**If no embeddings are found** (input not added, or the previous output was deleted), the cell does
+not stop: it installs `gdown` (for the CLIP-ReID weights), downloads PA-100K and PETA into
+`/kaggle/temp` and embeds them on every GPU, exactly like the first notebook (about 8 minutes on
+T4 x2). The embeddings then go to `/kaggle/temp/emb` (not saved with this version).
 """)
 code("""
+def find_embeddings(top="/kaggle/input"):
+    \"\"\"First folder under ``top`` with pa100k/ and peta/ train indexes (follows symlinks).\"\"\"
+    for dirpath, dirnames, _ in os.walk(top, followlinks=True):
+        dirnames.sort()
+        if all(os.path.exists(f"{dirpath}/{d}/train/index.json") for d in ("pa100k", "peta")):
+            return dirpath
+    return ""
+
+
+print("Mounted under /kaggle/input (3 levels):")
+for dirpath, dirnames, _ in os.walk("/kaggle/input", followlinks=True):
+    depth = dirpath.count(os.sep) - "/kaggle/input".count(os.sep)
+    print("  " * depth + (os.path.basename(dirpath) or dirpath) + "/")
+    if depth >= 3:
+        dirnames[:] = []
+EMB = EMB or find_embeddings()
 if not EMB:
-    for hit in sorted(glob.glob("/kaggle/input/**/pa100k/train/index.json", recursive=True)):
-        root = os.path.dirname(os.path.dirname(os.path.dirname(hit)))
-        if os.path.exists(f"{root}/peta/train/index.json"):
-            EMB = root
-            break
-if not EMB:
-    raise FileNotFoundError(
-        "No embeddings found under /kaggle/input. Add the previous attribute notebook's output "
-        "as an input (Add Input -> Your Work), or set EMB to the folder with pa100k/ and peta/."
-    )
+    print("No embeddings found: fetching the datasets and embedding them here (~8 min).")
+    DATA, EMB = "/kaggle/temp/attr_data", "/kaggle/temp/emb"
+    sh("pip install -q gdown==5.2.2")
+    sh(["reid", "attributes", "fetch", "--out", DATA])
+    embed_cmd = ["reid", "attributes", "embed", "--data", DATA, "--out", EMB]
+    n_gpus = len(os.popen("nvidia-smi -L").read().strip().splitlines())
+    if n_gpus >= 2:
+        workers = str(max(1, (os.cpu_count() or 2) // n_gpus))
+        run_parallel(
+            [
+                Job(f"embed{i}", [*embed_cmd, "--part", f"{i}/{n_gpus}", "--workers", workers],
+                    f"{WORK}/logs/embed_gpu{i}.log", {"CUDA_VISIBLE_DEVICES": str(i)})
+                for i in range(n_gpus)
+            ],
+            marker="ETA |",
+        )  # fmt: skip
+    sh(embed_cmd)  # one GPU: everything; several: verify all shards and mark complete
 print("Using the embeddings in", EMB)
 """)
 
