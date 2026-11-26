@@ -2,10 +2,14 @@
 
 *Body and face re-identification across cameras, for people it has never seen before.*
 
-**Who walked where?** This system follows people across several cameras that do not see each other,
-gives each person one identity, confirms identities with faces when a face is visible, and lets you
-search the footage with a photo. It is the person re-identification part of a retail-surveillance
-graduation project, rewritten as an installable package with a CLI, a web app and a free Colab path.
+**A person re-identification pipeline you can deploy on any set of cameras.** Point it at the video feeds of a
+shop, a warehouse or an office, with no training, no calibration and no list of known people. It detects and
+tracks everyone in each camera, gives each person one identity across all cameras, and creates new identities
+for people it has never seen before (open world). Body appearance links people across cameras, and when a face is
+visible it confirms the identity. The result is a searchable record of who was where and when: search by photo,
+follow one person from camera to camera, and measure dwell times. It runs on a free Colab GPU, a laptop graphics
+card or even a CPU, keeps all data local, and ships as an installable Python package with a command line and a
+web app.
 
 <p align="center">
   <img src="assets/showcase/hero.gif" width="760" alt="One worker followed from camera to camera with the same ID">
