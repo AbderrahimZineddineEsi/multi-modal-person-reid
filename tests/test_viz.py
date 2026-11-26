@@ -263,3 +263,18 @@ def test_cli_render_and_journey(env, capsys):
     assert (tmp / "renders" / "journey_gid1.mp4").exists()
     assert cli.main(["journey", *base, "--gid", "42", "--no-video"]) == 1
     assert cli.main(["render", *base]) == 1
+
+
+def test_spotlight_brightness_zero_hides_everything_else():
+    """With brightness 0 only the highlighted box area keeps its pixels (hides bystanders)."""
+    import numpy as np
+
+    from reid.viz.draw import _spotlight
+
+    frame = np.full((200, 300, 3), 200, np.uint8)
+    _spotlight(frame, [(100.0, 50.0, 140.0, 150.0)], 0.0)
+    assert frame[5, 5].max() == 0 and frame[195, 290].max() == 0  # far from the box: black
+    assert frame[100, 120].min() > 150  # inside the box: kept
+    dimmed = np.full((50, 50, 3), 200, np.uint8)
+    _spotlight(dimmed, [], 0.62)
+    assert int(dimmed[0, 0, 0]) == 124  # default behaviour unchanged

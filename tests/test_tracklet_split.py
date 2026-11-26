@@ -156,7 +156,8 @@ def test_tracker_options_appearance_only_for_supporting_trackers():
 
 
 def test_tracker_update_forwards_embeddings(caplog):
-    import torch
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("boxmot")
     from boxmot.structures import Boxes, Tracks
 
     seen = {}
