@@ -404,9 +404,10 @@ identity per frame: `camera id frame x y w h xworld yworld`.
   2.0 m, coordinates rounded to 3 decimals) and averages HOTA over the alpha thresholds. The printed overall
   number is the mean over scenes; the evaluator prints nothing per scene, so `score` also runs it once per scene.
 - **Setup.** Preset `balanced`, `runtime.max_side` 1280 (720p processing), `frame_stride` 2, scenes 075, 078, 082,
-  086 (test split, public ground truth). The published 2024 leaderboard HOTA values (1st 71.94, 2nd 67.22, 3rd
-  60.93; team papers, CVPRW 2024; online entries received a 10% bonus) are on all 30 test scenes, so they are
-  context, not a like-for-like comparison.
+  086 (test split, public ground truth). The published 2024 leaderboard (overview paper, arXiv:2404.09432,
+  Table 1, 17 submissions: 1. Yachiyo 71.94, 2. SJTU-Lenovo 67.22, 3. Nota 60.93, 4. Fraunhofer IOSB 60.88,
+  5. UW-ETRI 57.14, 6. ARV 51.06; online entries received a 10% bonus, the table does not say whether it is
+  included) is on all 30 test scenes, so it is context, not a like-for-like comparison.
 - **Crash safety.** A long run must not lose finished work. A failure in any step of one scene (fetch, process, 2D
   evaluation, export, 720p encode, pack) is logged with its traceback in that scene's `logs/process.log`, recorded in
   `benchmark.json` as `status: failed` with `step` and `error`, its raw folder is deleted, and the next scene goes
@@ -429,7 +430,35 @@ identity per frame: `camera id frame x y w h xworld yworld`.
   the model-load time per scene. It is an extrapolation from a 2-minute sample: costs that grow faster than linearly
   (identity consolidation, the 2D evaluation over 16 cameras) and CPU contention between the GPU jobs are not
   modelled. Its accuracy has not been checked against a full run yet.
-- **Results: not measured yet.** No number is claimed here until the Kaggle notebook has been run.
+
+### Official results (Kaggle, 2x T4, `balanced`, commit 9466ea9, 2026-11-25/26)
+
+Two Kaggle sessions, one scene per T4: 075 + 082, then 078 + 086. Each scene is complete: 16 cameras, 23,994 frames
+(13 min 20 s) per camera at 30 fps, 1920 x 1080, 30 to 36 people.
+
+| Scene | Thresholds tuned on it | HOTA | DetA | AssA | LocA | Identities / GT people | IDF1 (2D) | Rank-1 |
+|---|---|---|---|---|---|---|---|---|
+| 075 | first 2 min of 4 cameras (3.75% of the scene) | 67.5 | 67.2 | 67.7 | 90.9 | 46 / 30 | 72.0% | 74.0% |
+| 078 | no | 58.2 | 55.2 | 61.5 | 90.0 | 43 / 34 | 52.4% | 78.1% |
+| 086 | no | 55.9 | 57.1 | 54.9 | 89.7 | 66 / 35 | 64.8% | 66.3% |
+| 082 | no | 51.7 | 52.3 | 51.2 | 90.2 | 77 / 36 | 65.6% | 67.2% |
+| **held-out mean (078, 082, 086)** | | **55.3** | 54.9 | 55.9 | 90.0 | | | |
+
+- **Placement.** The held-out mean (55.3) falls between the 5th (57.14) and 6th (51.06) published entries. Those
+  entries average all 30 test scenes, and the leading ones fine-tune their detector and ReID model on the AI City
+  training split and associate across cameras with the calibration. Here no model is trained on AI City data and
+  the calibration is only used to output floor positions.
+- **Speed and memory.** 20.7 to 21.9 processed fps per T4 (`frame_stride` 2, Kaggle has 2 CPU cores), about 2.4 h of
+  processing per scene; a whole session (fetch, process, 2D evaluation, export, 720p copies, packing, scoring) took
+  4 h 37 min and 4 h 52 min. Whole-process GPU memory 1.05 GB (075/082 session) and 0.68 GB (078/086 session, same
+  commit; the difference has not been investigated). The PyTorch peak of the detector and body model is 0.46 GB.
+- **What limits the score.** Identity fragmentation (one person split into several gids: 66 and 77 gids for 35 and
+  36 people) and missed people (about 18 predicted positions per frame for 26 people in scene 082). Only about 4%
+  of the rows in scene 082 are simultaneous duplicates of another gid beyond the natural crowding of the ground
+  truth, so the splits are mostly over time. Floor positions are accurate (LocA about 90 on every scene).
+- **Not used.** Calibration-based association (floor-position continuity across overlapping cameras) and faces (the
+  synthetic people have no usable faces). The 2D evaluation took about 2 h of each session and is not part of the
+  official score.
 
 ## 8. Limitations
 

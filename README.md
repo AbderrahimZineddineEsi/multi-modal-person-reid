@@ -39,15 +39,54 @@ cameras, so nothing needs a cloud account.
 
 ## Results
 
-**Labelled benchmark**: AI City Challenge 2024, retail scene 075 (synthetic, exact labels), 4 overlapping
-cameras, 2 minutes, 10 people, free Colab T4, `balanced` preset:
+### Official AI City Challenge benchmark: 55.3 HOTA on unseen scenes, with no training on the data
 
-| Identities for 10 people | People split / IDs mixing people | Cross-camera IDF1 | Held-out search Rank-1 | Speed | GPU memory |
+The [AI City Challenge](https://www.aicitychallenge.org/) is NVIDIA's yearly computer-vision competition (CVPR
+workshop). Its 2024 multi-camera people tracking track drew 421 registered teams. The test scenes are
+photo-realistic synthetic indoor spaces such as shops and warehouses, built by NVIDIA: **16 calibrated cameras
+watching the same space, 13 min 20 s of 1080p video each, 30 to 36 people walking around**, often out of one camera's view and into another's. The task is to say,
+for every frame, where each person stands on the floor and *who* they are, with one ID per person across all 16
+cameras. NVIDIA's official evaluator scores it with **HOTA**, which rewards finding people (DetA) and keeping
+their identity over time and across cameras (AssA) equally.
+
+This system ran the full scenes on one free Kaggle T4 GPU per scene, scored by NVIDIA's own evaluator:
+
+| Scene | Seen before? | HOTA | Finding people (DetA) | Keeping identities (AssA) | Floor position (LocA) |
 |---|---|---|---|---|---|
-| **10** | **0 / 0** | **88.3%** | **96%** | 34 fps | 1.0 GB |
+| 078 | **never** | **58.2** | 55.2 | 61.5 | 90.0 |
+| 086 | **never** | **55.9** | 57.1 | 54.9 | 89.7 |
+| 082 | **never** | **51.7** | 52.3 | 51.2 | 90.2 |
+| **3 unseen scenes, mean** | | **55.3** | 54.9 | 55.9 | 90.0 |
+| 075 | thresholds tuned on its first 2 minutes of 4 cameras (3.75% of it) | **67.5** | 67.2 | 67.7 | 90.9 |
 
-IDF1 is limited by recall of small, distant people, not by identity errors (identity precision 97%).
-How the numbers are measured, and why the earlier version's "85% accuracy" was not a real accuracy:
+**55.3 HOTA on scenes it had never seen falls between the 5th (57.1) and 6th (51.1) places of the
+[2024 leaderboard](https://arxiv.org/abs/2404.09432)** (17 final submissions; their scores average all 30 test
+scenes, these are 3 of them, so the placement is indicative). That was reached with:
+
+- **No training on the benchmark.** Every model is used off the shelf. The leading entries fine-tuned their
+  detectors and ReID models on AI City's own training scenes, the same synthetic people and the same kind of store.
+- **Medium-sized models and under 1 GB of GPU memory.** A medium YOLO26 detector (it also gives the pose) and a
+  ViT-B ReID model: 0.68 to 1.05 GB for the whole process, 0.46 GB of PyTorch memory for the two models that ran.
+  The top teams used large detectors (ByteTrack's YOLOX, YOLOv8x) and separate pose models.
+- **About 21 frames per second on one T4,** every second frame, for a whole 16-camera scene in about 2.4 hours.
+- **Appearance only.** The top entries also matched people across cameras with the 3D calibration ("same spot on
+  the floor at the same moment = same person"). Here the calibration only converts boxes to floor positions for
+  the scorer, which is why LocA is about 90 on every scene. Using it for matching is the next step.
+
+**One hand was tied behind its back: faces.** The AI City people are synthetic and have no usable faces, so the
+face path, the strongest signal in this design, was off for the whole benchmark. In a real deployment, one or more
+face cameras (an entrance, a till) let a face match link the fragments of a person across cameras as a hard
+constraint, which targets exactly the main error measured here: one person split into several identities. That
+effect has not been measured on this benchmark.
+
+Numbers, protocol and limits: [technical report §7](docs/technical_report.md). Reproduce with the
+[Kaggle notebook](notebooks/kaggle_aicity_benchmark.ipynb) (below).
+
+### Short benchmark slice and real footage
+
+On the 2-minute, 4-camera slice of scene 075 used for tuning (10 people), the `balanced` preset gives
+**10 identities for 10 people, none split or mixed**, cross-camera IDF1 88.3%, held-out search Rank-1 96%, at 34 fps
+on a Colab T4. How the numbers are measured, and why the earlier version's "85% accuracy" was not a real accuracy:
 [technical report](docs/technical_report.md), [v1 → v2 report](docs/v1_to_v2_report.md).
 
 **Real footage** (the showcase above, 8 cameras, 4 people): 4 identities with no person mixed into another,
@@ -129,7 +168,7 @@ reid app --workspace data/bench                                                 
                                                                                     #  reid env import envs/<env>.zip first)
 ```
 
-Results are not published yet: they will be added here once the notebook has been run.
+Results: see [Official AI City Challenge benchmark](#official-ai-city-challenge-benchmark-553-hota-on-unseen-scenes-with-no-training-on-the-data) above.
 
 ### Command line
 

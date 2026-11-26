@@ -138,3 +138,46 @@ def test_manual_ops_merge_split_rename(tmp_path):
     cfg2.consolidation.merge_threshold = 2.0
     res = K.recluster(env.conn, env.vectors, cfg2)
     assert res.merges == [] and gid_of(env, b1) == new
+
+
+def _attach_same_face(eng, rng, tracklets_gids, face):
+    for t, g in tracklets_gids:
+        eng.store.face_tracklet.add([t.id], unit(face + 0.05 * rng.normal(size=D_FACE))[None], [g])
+
+
+def test_cannot_link_beats_face_must_link(tmp_path):
+    """Same face on two gids (must-link) but the tracklets overlap on one camera: never merged."""
+    rng = np.random.default_rng(6)
+    c = centers(3, seed=7, shared=0.0)
+    f = centers(3, d=D_FACE, seed=8, shared=0.0)
+    env = make_env(tmp_path, **{"consolidation.merge_threshold": 0.05})
+    eng = IdentityEngine(env.cfg, env.conn, env.vectors)
+    a = make_tracklet(env, "c1", 0, 10, c[0], rng)
+    b = make_tracklet(env, "c1", 5, 15, c[1], rng)  # simultaneous on the same camera
+    eng.on_tracklet(a), eng.on_tracklet(b)
+    ga, gb = gid_of(env, a), gid_of(env, b)
+    assert ga != gb
+    _attach_same_face(eng, rng, [(a, ga), (b, gb)], f[0])
+    res = K.consolidate(eng.store)
+    assert res.merges == []
+    assert res.skipped_must_links == [(min(ga, gb), max(ga, gb))]
+    assert gid_of(env, a) == ga and gid_of(env, b) == gb
+
+
+def test_cannot_link_beats_must_link_chain(tmp_path):
+    """A~B and B~C by face, but A and C overlap: B joins one of them, never both."""
+    rng = np.random.default_rng(9)
+    c = centers(3, seed=10, shared=0.0)
+    f = centers(3, d=D_FACE, seed=11, shared=0.0)
+    env = make_env(tmp_path, **{"consolidation.merge_threshold": 0.05})
+    eng = IdentityEngine(env.cfg, env.conn, env.vectors)
+    a = make_tracklet(env, "c1", 0, 10, c[0], rng)
+    cc = make_tracklet(env, "c1", 5, 15, c[1], rng)  # overlaps a on c1
+    b = make_tracklet(env, "c2", 100, 110, c[2], rng)  # far in time, other camera
+    for t in (a, cc, b):
+        eng.on_tracklet(t)
+    ga, gc, gb = gid_of(env, a), gid_of(env, cc), gid_of(env, b)
+    assert len({ga, gb, gc}) == 3
+    _attach_same_face(eng, rng, [(a, ga), (cc, gc), (b, gb)], f[0])
+    K.consolidate(eng.store)
+    assert gid_of(env, a) != gid_of(env, cc)

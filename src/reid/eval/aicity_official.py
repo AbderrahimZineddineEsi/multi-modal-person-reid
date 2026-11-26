@@ -36,7 +36,16 @@ _SAFE_PATH = re.compile(r"^[a-zA-Z0-9_\-/.#]+$")
 _METRIC_RE = re.compile(r"^\s*(HOTA|DetA|AssA|LocA):\s*(-?[0-9.]+(?:[eE][-+]?\d+)?)\s*%", re.M)
 
 # Published 2024 leaderboard (all 30 test scenes), for context only; online entries got a bonus.
-LEADERBOARD_2024 = {"1st": 71.94, "2nd": 67.22, "3rd": 60.93}
+#: Track 1 leaderboard of the 8th AI City Challenge (overview paper, arXiv:2404.09432, Table 1; 17
+#: submissions, ranks 7-8 not listed there): rank -> (team, HOTA on all 30 test scenes).
+LEADERBOARD_2024 = {
+    1: ("Yachiyo", 71.94),
+    2: ("SJTU-Lenovo", 67.22),
+    3: ("Nota", 60.93),
+    4: ("Fraunhofer IOSB", 60.88),
+    5: ("UW-ETRI", 57.14),
+    6: ("ARV", 51.06),
+}
 
 
 def fetch_official_eval(dest: str | Path) -> Path:

@@ -175,15 +175,17 @@ def results_markdown(r: dict[str, Any]) -> str:
             f"{_fmt((m.get('retrieval') or {}).get('rank1'), True)} | {_fmt(run.get('fps'))} | "
             f"{f'{gm / 1024:.2f} GB' if gm else 'n/a'} |"
         )
-    lb = r["leaderboard_2024"]
+    lb = sorted(r["leaderboard_2024"].items(), key=lambda kv: int(kv[0]))
+    board = ", ".join(f"{rank}. {team} {hota}" for rank, (team, hota) in lb)
     lines += [
         "",
         "## Context: the 2024 leaderboard",
         "",
-        f"Published HOTA of the AI City Challenge 2024 Track 1 winners: 1st {lb['1st']}, "
-        f"2nd {lb['2nd']}, 3rd {lb['3rd']} (team papers, CVPRW 2024; online entries received a "
-        "10% bonus). Those numbers are on all 30 test scenes, ours are on the scenes listed "
-        "above, so they are context and not a like-for-like comparison.",
+        "Published AI City Challenge 2024 Track 1 leaderboard (overview paper, arXiv:2404.09432, "
+        "17 submissions): "
+        + board
+        + ". Those numbers are on all 30 test scenes, ours are on the scenes listed above, so "
+        "they are context and not a like-for-like comparison.",
         "",
     ]
     return "\n".join(lines)

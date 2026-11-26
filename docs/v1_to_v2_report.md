@@ -260,7 +260,7 @@ says the entropy is normalised to [0, 1], so v2 (like your v1, after its own fix
 | | v1 (`UnknownDataManager`) | v2 | Paper |
 |---|---|---|---|
 | Pooled items | single **frame** crops | **tracklet** descriptors | samples |
-| Schedule | every 30 frames (skipped on empty frames, B9) | every 20 pooled tracklets and at the end of each camera | — |
+| Schedule | every 30 frames (skipped on empty frames, B9) | whenever the pool size reaches a multiple of 20 tracklets (checked once per closed tracklet) and at the end of each camera | — |
 | Cluster size to act | 5 frames (one track can mint a person, W8) | 20 samples (l = 20) | l = 20 |
 | Compare with gallery | nearest weighted centroid, merge if cos ≥ 0.85 | k = 3 most frequent classes among the samples' nearest centroids; new identity if min distance > 0.1 | k = 3, α = 0.1 |
 | Constraints | none | cannot-linked pairs never clustered together | — |
@@ -383,9 +383,27 @@ YAML. This is what makes the mosaic, the follow-a-person clip, transit-time cons
 **v1** processed one camera per run; "multi-camera" meant running the notebook again on another video with the
 gallery carried over. Matches across cameras were appearance-only and global (W6).
 
-**v2** processes a **camera set** in one run (sequentially, into one shared identity space), with per-camera time,
-cannot-links, optional topology, consolidation across cameras, a synchronized mosaic, and a follow clip that cuts from
-camera to camera.
+**v2** processes a **camera set** in one run, into one shared identity space, with per-camera time, cannot-links,
+optional topology, consolidation across cameras, a synchronized mosaic, and a follow clip that cuts from camera to
+camera.
+
+What improved is what the system *understands* about several cameras, not how it *executes* them. Execution is
+still **sequential and offline**: camera 1 is read to its end, then camera 2, and so on, like a batch job. Total
+time is the sum of the cameras. That is fine for analysing recordings, but it is not enough for a live store, where
+all cameras produce frames at the same time and results are needed while people are still inside.
+
+A real-time version would split the work in two:
+
+| Part | Shared state | Parallel? |
+|---|---|---|
+| Perception: decode, detect, track, gate, embed (per camera) | none, each camera is independent | yes, one worker per camera, or batched on one GPU |
+| Identity: gallery matching, unknown pool, constraints | one shared gallery | no, one serial consumer, otherwise two workers could race to create the same new identity |
+
+The design would be N camera workers feeding a queue of closed tracklets, with one identity engine consuming it. v2
+is partly ready for that: tracklets are finalised incrementally and handed to `engine.on_tracklet` one at a time,
+and the engine keeps its state in the database, so it already accepts interleaved input. Missing are the worker and
+queue layer, the stream input, and end-of-run steps (flush, consolidation) that do not assume the run has an end.
+This is future work items 1 and 7 (`docs/future_work.md`); also listed in section 11 ("Offline, not live").
 
 ### 7.4 App
 
@@ -508,6 +526,19 @@ measurement, listed in `docs/dev/changes_log.md`.
 - **Small-person recall.** With `balanced`, people 80-120 px tall are found 39.7% of the time and 40-80 px 31.7%.
   This, not association, caps IDF1. Levers: a larger detector input size, the `accurate`/`max` presets, cameras
   closer to the scene.
+- **Brief unknown people wait in the pool until the end (minor, an edge case).** The Unknown Data Manager only
+  judges a cluster of at least 20 samples (section 5.2). Unmatched tracklets that stay in small clusters are kept,
+  not dropped, and are re-clustered at every later pass. They get an identity at the final flush at the latest.
+  - *When it does not matter:* repeated sightings of the same person. Their tracklets cluster together, their samples
+    add up, and once they pass 20 the cluster is judged normally.
+  - *When it matters:* many different people, each seen only briefly. Their clusters never reach 20 samples, so
+    none of them gets an identity before `end_run` (fine offline, not for live use).
+  - *Cost:* the pool has no size cap, so it can grow and make each pass slower. The number of passes stays small,
+    because the UDM runs only when the pool size reaches a multiple of 20, and that check happens once per closed
+    tracklet, not per frame. Correctness is not affected, because the flush resolves everyone.
+  - *Side effect:* at the flush a brief tracklet may become a new identity that is a fragment of a known person
+    (distance test 0.1); the consolidation step (5.5) then re-joins most such fragments.
+  - *Possible fix, not implemented:* resolve any pooled tracklet older than N seconds of video, or cap the pool.
 - **Faces not yet validated on real footage.** The AI City people are synthetic with no usable faces; the face path is
   tested with synthetic evidence and sample images. Your phone recordings will be the first real test.
 - **Thresholds calibrated on one scene** (split 0.7, association 0.78, consolidation 0.65). One false split was seen
