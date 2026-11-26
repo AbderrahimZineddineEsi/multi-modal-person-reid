@@ -284,7 +284,7 @@ models on CPU, so they are not counted.
 | Preset | GPU memory (GTX 1050) | Speed | Source |
 |---|---|---|---|
 | `lite` | 0.26 GB | 49.9 fps (120 s, 4 cameras, stride 2); 20.8 fps in an early smoke test with other GPU load | changes_log P6, P2 |
-| `balanced` | 0.87 GB local; 1.02 GB on T4 (face on GPU) | 16.9 fps on GTX 1050; **34 fps on Colab T4** | changes_log P7, v1_to_v2 8.3 |
+| `balanced` | 0.87 GB local; 1.02 GB on T4 (face on GPU) | 16.9 fps on GTX 1050; **34 fps on Colab T4** | changes_log P7 |
 | `balanced` + appearance tracking | not measured | 9.6 fps on GTX 1050 | changes_log P7 |
 | `accurate` | 0.82 GB | not measured end to end | local_app.md |
 | `max` | 1.14 GB (the planner estimated 1.24 GB) | 4.0 fps on GTX 1050 (300 frames per camera, 2 cameras) | changes_log |
