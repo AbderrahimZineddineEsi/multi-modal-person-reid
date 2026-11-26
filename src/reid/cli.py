@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from reid.cli_attributes import cmd_attributes
 from reid.cli_benchmark import cmd_benchmark
 from reid.config import Config, load_config
 from reid.storage import db, files
@@ -627,6 +628,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "app": (cmd_app, "launch the Gradio app"),
     "env": (cmd_env, "list, export, import or relink environments (Colab to PC)"),
     "benchmark": (cmd_benchmark, "official AI City 2024 benchmark: run scenes, score with HOTA"),
+    "attributes": (cmd_attributes, "pedestrian attribute head: fetch, embed, train, report"),
     "sync": (cmd_sync, "sync environments with a Drive folder / rclone remote (PC <-> Colab)"),
     "info": (cmd_info, "print the effective config and data_dir statistics"),
 }
