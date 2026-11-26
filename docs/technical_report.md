@@ -431,7 +431,7 @@ identity per frame: `camera id frame x y w h xworld yworld`.
   (identity consolidation, the 2D evaluation over 16 cameras) and CPU contention between the GPU jobs are not
   modelled. Its accuracy has not been checked against a full run yet.
 
-### Official results (Kaggle, 2x T4, `balanced`, commit 9466ea9, 2026-11-25/26)
+### Official results (Kaggle, 2x T4, `balanced`, commit 68b36b0, 2026-11-25/26)
 
 Two Kaggle sessions, one scene per T4: 075 + 082, then 078 + 086. Each scene is complete: 16 cameras, 23,994 frames
 (13 min 20 s) per camera at 30 fps, 1920 x 1080, 30 to 36 people.
