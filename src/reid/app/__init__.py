@@ -42,11 +42,11 @@ def build_app(
     ``**launch_style()`` to ``Blocks.launch``.
     """
     ctx = AppContext(cfg, read_only=read_only, workspace=workspace, env=env, showcase=showcase)
-    with gr.Blocks(title="reid", analytics_enabled=False) as demo:
+    with gr.Blocks(title="Sightline", analytics_enabled=False) as demo:
         ctx.ui["demo"] = demo
         gr.HTML(
             C.page_header(
-                "reid",
+                "Sightline",
                 "Who walked where? Multi-camera person re-identification with face confirmation.",
                 [C.badge("read-only", "warn")] if read_only else [],
             )

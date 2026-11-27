@@ -1,4 +1,4 @@
-# Technical report: multi-camera person Re-ID and face association (v2)
+# Sightline: technical report (multi-camera person Re-ID and face association, v2)
 
 This is the technical description of the current system (package `reid`, version 0.2.0, branch `v2`).
 It covers what the code does, which parameters control it, which papers it follows, what was measured,
