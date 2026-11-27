@@ -4,6 +4,8 @@ Everything needed to edit a short promo video of Sightline (about 45-60 s, 16:9,
 are cleared for public use: every person other than the men on the allow-list is blurred. **Use only these
 clips and the ones in `assets/showcase/`; do not record new footage of other people.**
 
+The current cut is `sightline_linkedin_promo.mp4` (60 s, 1080p, shown at the end of the main README).
+
 ## Footage
 
 | File | Length | What it shows |

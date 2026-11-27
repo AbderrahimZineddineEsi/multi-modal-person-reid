@@ -308,5 +308,15 @@ face models are for non-commercial research use. Showcase footage: Pexels Licens
 CC-BY-4.0. Face and body descriptors are biometric data: keep them local, and process people only with a
 legal basis and their consent.
 
+## Promo video
+
+<p align="center">
+  <a href="assets/promo/sightline_linkedin_promo.mp4"><img src="assets/promo/sightline_linkedin_promo.jpg" width="560" alt="Sightline promo video, 60 seconds"></a>
+</p>
+
+*A one-minute tour of Sightline: the 16-camera store, one shopper followed across cameras, face confirmation,
+then the app (process, overview, search by photo, find by description, follow clip) and the measured numbers.
+[Watch the video](assets/promo/sightline_linkedin_promo.mp4) (1080p, 60 s). Other people are blurred for privacy.*
+
 *Author: Abderrahim Zineddine. Part of a 4th-year graduation project (the theft-detection and VLM-orchestrator
 parts were team contributions and are not in this repository).*
