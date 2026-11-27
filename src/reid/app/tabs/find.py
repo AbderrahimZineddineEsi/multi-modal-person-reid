@@ -68,7 +68,9 @@ def render(ctx: AppContext, sel: Selection, shown: int = PAGE) -> tuple[Any, ...
         annotate = gr.update(visible=status.state == "not_annotated")
         return state, annotate, gr.update(visible=False), "", "", gr.update(visible=False), *labels
     names, cams = scope_names(ctx)
-    html, more = find_views.results_html(ctx.data_dir, out, sel, names, cams, shown)
+    with ctx.db() as conn:
+        view = ctx.show_view(conn)
+    html, more = find_views.results_html(ctx.data_dir, out, sel, names, cams, shown, view)
     btn = gr.update(visible=more > 0, value=f"Show more ({more:,} left)")
     return (
         "", gr.update(visible=False), gr.update(visible=True), find_views.stats_html(out, sel),
@@ -137,9 +139,12 @@ def detail_for(
     else:
         probs = dict(zip(out.table.head.labels, person.best.probs.tolist(), strict=True))
         face = False
+    with ctx.db() as conn:
+        view = ctx.show_view(conn)
     return find_views.detail_html(
-        ctx.data_dir, person, ui_labels.describe(probs), sel, names, cams, face, sel.has_terms
-    )
+        ctx.data_dir, person, ui_labels.describe(probs), sel, names, cams, face, sel.has_terms,
+        view,
+    )  # fmt: skip
 
 
 def build(ctx: AppContext) -> gr.Tab:

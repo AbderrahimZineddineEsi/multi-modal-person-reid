@@ -486,6 +486,8 @@ Two Kaggle sessions, one scene per T4: 075 + 082, then 078 + 086. Each scene is 
 - **Privacy.** Faces and body descriptors are biometric data. Data stays local and shared app links need a login,
   and renders can blur everyone except the followed person (`render.blur_others`), so a clip can
   be shared without showing other people; there is no consent or retention feature.
+  `reid app --showcase FILE` goes further for screen recordings: it blurs every person image and video except an
+  allow-list of identities per environment, with an attribute-based guard on top of the list.
 - **Licences.** The package is AGPL-3.0 because Ultralytics and boxmot are AGPL. InsightFace weights are
   research-only.
 

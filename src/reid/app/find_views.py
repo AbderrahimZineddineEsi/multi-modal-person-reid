@@ -12,8 +12,8 @@ from html import escape
 
 from reid.app import components as C
 from reid.app import find_states
+from reid.app import showcase as sc
 from reid.app.find_data import PAGE, Outcome, Selection, person_key
-from reid.app.media import thumb_uri
 from reid.attributes import ui_labels
 from reid.find import Hit, PersonHit
 from reid.storage import files
@@ -32,9 +32,9 @@ def pct_text(pct: float) -> str:
     return "<1%" if 0 < pct < 1 else f"{pct:.0f}%"
 
 
-def _crop(data_dir, h: Hit, height: int = 240) -> str | None:
+def _crop(data_dir, h: Hit, height: int = 240, view: sc.ShowView | None = None) -> str | None:
     rel = h.crop_path or files.crop_path(data_dir, h.tracklet_id).relative_to(data_dir).as_posix()
-    return thumb_uri(rel, data_dir, height)
+    return sc.thumb(view, rel, data_dir, height)
 
 
 def _img(uri: str | None, alt: str) -> str:
@@ -124,7 +124,7 @@ def _card(key: str, color: str, thumb: str, name: str, gid_tag: str, meta: str, 
 
 def people_grid(
     data_dir, out: Outcome, sel: Selection, names: Mapping[int, str],
-    cams: Mapping[str, str], shown: int = PAGE,
+    cams: Mapping[str, str], shown: int = PAGE, view: sc.ShowView | None = None,
 ) -> tuple[str, int]:  # fmt: skip
     """Cards of the first ``shown`` people and how many more there are."""
     cards = []
@@ -140,19 +140,18 @@ def people_grid(
         tag = f'<span class="rd-gid">#{p.gid}</span>' if p.gid is not None else ""
         meta = f"{escape(what)}"
         extra = f'<div class="rd-fcams">{escape(cam_txt)}</div>'
+        name = person_name(p, names)
+        thumb = _img(_crop(data_dir, p.best, view=view), name)
         cards.append(
-            _card(
-                person_key(p), _color(p.gid), _img(_crop(data_dir, p.best), person_name(p, names)),
-                person_name(p, names), tag, meta, extra, _match(p.best, sel.has_terms),
-                p.best.passes,
-            )
+            _card(person_key(p), _color(p.gid), thumb, name, tag, meta, extra,
+                  _match(p.best, sel.has_terms), p.best.passes)
         )  # fmt: skip
     return _grid(cards), max(0, len(out.people) - shown)
 
 
 def appearances_grid(
     data_dir, out: Outcome, sel: Selection, names: Mapping[int, str],
-    cams: Mapping[str, str], shown: int = PAGE,
+    cams: Mapping[str, str], shown: int = PAGE, view: sc.ShowView | None = None,
 ) -> tuple[str, int]:  # fmt: skip
     """One card per appearance (tracklet), best match first."""
     assert out.result is not None
@@ -164,9 +163,10 @@ def appearances_grid(
         meta = f"{clock(h.start_ts)} to {clock(h.end_ts)}"
         extra = f'<div class="rd-fcams">{escape(cam)}</div>'
         tag = f'<span class="rd-gid">#{h.gid}</span>' if h.gid is not None else ""
+        thumb = _img(_crop(data_dir, h, view=view), who)
         cards.append(
-            _card(key, _color(h.gid), _img(_crop(data_dir, h), who), who, tag, meta, extra,
-                  _match(h, sel.has_terms), h.passes)
+            _card(key, _color(h.gid), thumb, who, tag, meta, extra, _match(h, sel.has_terms),
+                  h.passes)
         )  # fmt: skip
     return _grid(cards), max(0, len(out.result.hits) - shown)
 
@@ -177,14 +177,14 @@ def _grid(cards: Sequence[str]) -> str:
 
 def results_html(
     data_dir, out: Outcome, sel: Selection, names: Mapping[int, str],
-    cams: Mapping[str, str], shown: int = PAGE,
+    cams: Mapping[str, str], shown: int = PAGE, view: sc.ShowView | None = None,
 ) -> tuple[str, int]:  # fmt: skip
     """The grid (or the helpful empty state) and the number of cards not shown yet."""
     assert out.result is not None
     if not out.result.hits:
         return find_states.empty_results(out, sel), 0
     build = people_grid if sel.view == "People" else appearances_grid
-    html, more = build(data_dir, out, sel, names, cams, shown)
+    html, more = build(data_dir, out, sel, names, cams, shown, view)
     dashed = any(not p.best.passes for p in out.people[:shown]) and sel.has_terms
     legend = (
         '<p class="rd-flegend"><span class="rd-fkey"></span>Dashed cards are the closest '
@@ -212,6 +212,7 @@ def _chips(chips: Sequence[ui_labels.AttrChip], on: set[str]) -> str:
 def detail_html(
     data_dir, person: PersonHit, chips: Sequence[ui_labels.AttrChip], sel: Selection,
     names: Mapping[int, str], cams: Mapping[str, str], face: bool, has_terms: bool,
+    view: sc.ShowView | None = None,
 ) -> tuple[str, str]:  # fmt: skip
     """Drawer content as ``(header, body)``: who it is, then how they look and every appearance."""
     color = _color(person.gid)
@@ -223,7 +224,7 @@ def detail_html(
         badges.insert(0, C.badge(f"best match {pct_text(person.best.match_pct)}", "accent"))
     head = (
         f'<div class="rd-dhead" style="--pc:{color}"><div class="rd-avatar">'
-        f"{_img(_crop(data_dir, person.best, 320), name)}</div>"
+        f"{_img(_crop(data_dir, person.best, 320, view), name)}</div>"
         f'<div class="rd-dtitle"><div class="rd-person-name">{escape(name)}{tag}</div>'
         f'<div class="rd-row">{"".join(badges)}</div></div></div>'
     )
@@ -240,7 +241,7 @@ def detail_html(
         pct = f"<b>{pct_text(h.match_pct)}</b>" if has_terms else ""
         miss = "" if h.passes or not has_terms else " rd-miss"
         cam = escape(cams.get(h.camera_id, h.camera_id))
-        thumb = _img(_crop(data_dir, h, 160), "")
+        thumb = _img(_crop(data_dir, h, 160, view), "")
         tiles.append(
             f'<div class="rd-atile{miss}"><div class="rd-athumb">{thumb}</div>'
             f"<div><span>{cam}</span><em>{clock(h.start_ts)} to {clock(h.end_ts)}</em>{pct}</div>"

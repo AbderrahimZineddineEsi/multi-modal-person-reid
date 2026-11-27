@@ -8,7 +8,7 @@ from typing import Any
 
 from reid import analytics
 from reid.app import components as C
-from reid.app.media import thumb_uri
+from reid.app import showcase as sc
 from reid.app.state import AppContext
 from reid.storage import db, files
 
@@ -43,11 +43,12 @@ def gallery_items(ctx: AppContext, conn: sqlite3.Connection) -> tuple[list, list
     """(``gr.Gallery`` items, gids): best crop with a caption for every person that has one."""
     by_gid = _by_gid(conn)
     names = person_names(conn)
+    view = ctx.show_view(conn)
     items, gids = [], []
     for gid in sorted(by_gid):
         p = best_crop_path(ctx, by_gid[gid])
         if p is not None:
-            items.append((str(p), names.get(gid, f"Person {gid}")))
+            items.append((sc.gallery_path(view, p), names.get(gid, f"Person {gid}")))
             gids.append(gid)
     return items, gids
 
@@ -55,6 +56,7 @@ def gallery_items(ctx: AppContext, conn: sqlite3.Connection) -> tuple[list, list
 def people_cards(ctx: AppContext, conn: sqlite3.Connection) -> list[C.PersonCard]:
     """One card per identity, ordered by gid."""
     by_gid = _by_gid(conn)
+    view = ctx.show_view(conn)
     cards = []
     for ident in db.list_identities(conn):
         ts = by_gid.get(ident.gid, [])
@@ -66,7 +68,7 @@ def people_cards(ctx: AppContext, conn: sqlite3.Connection) -> list[C.PersonCard
                 n_cameras=len({t.camera_id for t in ts}),
                 duration_s=sum(t.end_ts - t.start_ts for t in ts),
                 has_face=ident.has_face,
-                thumb=thumb_uri(best_crop_path(ctx, ts), ctx.data_dir),
+                thumb=sc.thumb(view, best_crop_path(ctx, ts), ctx.data_dir),
             )
         )
     return cards
@@ -81,10 +83,11 @@ def person_names(conn: sqlite3.Connection) -> dict[int, str]:
 
 
 def journey_steps(ctx: AppContext, conn: sqlite3.Connection, gid: int) -> list[C.StepView]:
+    view = ctx.show_view(conn)
     return [
         C.StepView(
             s.camera_name, s.start_ts, s.end_ts, s.gap_s, s.assign_source,
-            thumb_uri(s.best_crop_path or crop_rel_id(ctx, s.tracklet_id), ctx.data_dir, 120),
+            sc.thumb(view, s.best_crop_path or crop_rel_id(ctx, s.tracklet_id), ctx.data_dir, 120),
         )
         for s in analytics.journey(conn, gid)
     ]  # fmt: skip

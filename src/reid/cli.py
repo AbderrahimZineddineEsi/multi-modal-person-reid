@@ -333,12 +333,21 @@ def cmd_app(args: argparse.Namespace) -> int:
             sys.stderr.write("reid app: --auth expects user:password\n")
             return 1
         auth = (user, password)
+    showcase = None
+    if args.showcase:
+        from reid.app.showcase import Showcase
+
+        try:
+            showcase = Showcase.load(args.showcase)
+        except ValueError as exc:
+            sys.stderr.write(f"reid app: {exc}\n")
+            return 1
     cfg = _build_config(args)
     workspace, env = _app_workspace(args, cfg)
     logging.basicConfig(level=cfg.runtime.log_level, format="%(levelname)s %(name)s: %(message)s")
     demo, creds = launch(
         cfg, share=args.share, auth=auth, workspace=workspace, env=env,
-        read_only=args.read_only, port=args.port, host=args.host, block=False,
+        read_only=args.read_only, showcase=showcase, port=args.port, host=args.host, block=False,
     )  # fmt: skip
     if creds is not None and auth is None:
         sys.stdout.write(f"login for the shared link: {creds[0]} / {creds[1]}\n")
@@ -362,6 +371,10 @@ def _app_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--share", action="store_true", help="public link (a login is generated)")
     p.add_argument("--auth", metavar="USER:PASS", help="require this login")
     p.add_argument("--read-only", action="store_true", help="hide the delete and wipe tools")
+    p.add_argument(
+        "--showcase", metavar="FILE",
+        help="display-only privacy mode: blur everyone not on the allow-list in this JSON file",
+    )  # fmt: skip
     p.add_argument("--admin", action="store_true", help=argparse.SUPPRESS)  # old no-op: always on
     p.add_argument("--port", type=int, help="port (default: first free from 7860)")
     p.add_argument("--host", help="interface to bind (default 127.0.0.1)")

@@ -13,32 +13,39 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from reid.viz.privacy import strong_blur
+
 MAX_DOWNLOAD_BYTES = 8 * 2**20
 
 
 @lru_cache(maxsize=2048)
-def _thumb(path: str, mtime: float, height: int) -> str | None:
+def _thumb(path: str, mtime: float, height: int, blur: bool = False) -> str | None:
     img = cv2.imread(path)
     if img is None:
         return None
     h, w = img.shape[:2]
     scale = height / max(h, 1)
     img = cv2.resize(img, (max(1, round(w * scale)), height), interpolation=cv2.INTER_AREA)
+    if blur:  # part of the cache key: a sharp and a blurred thumbnail never share an entry
+        img = strong_blur(img)
     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 82])
     return f"data:image/jpeg;base64,{base64.b64encode(buf).decode()}" if ok else None
 
 
-def thumb_uri(path: str | Path | None, data_dir: Path, height: int = 220) -> str | None:
+def thumb_uri(
+    path: str | Path | None, data_dir: Path, height: int = 220, blur: bool = False
+) -> str | None:
     """Small JPEG data URI of an image stored under ``data_dir`` (None if it is missing).
 
     Inlining keeps the cards independent of Gradio's file routes and works behind auth.
+    ``blur`` makes the person unrecognisable (showcase mode, see :mod:`reid.app.showcase`).
     """
     if not path:
         return None
     p = Path(path)
     p = p if p.is_absolute() else data_dir / p
     try:
-        return _thumb(str(p), p.stat().st_mtime, height)
+        return _thumb(str(p), p.stat().st_mtime, height, blur)
     except OSError:
         return None
 

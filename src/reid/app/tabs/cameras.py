@@ -43,6 +43,7 @@ def video(ctx: AppContext, camera: str | None, gid: int | None, secs: float, pro
     gid = gid or None
     end = float(secs) if secs and secs > 0 else None
     with ctx.db() as conn:
+        cfg = ctx.render_cfg(conn, gid)  # showcase: a blurring copy of the config
         return str(
             ctx.cached(
                 conn,
@@ -51,7 +52,7 @@ def video(ctx: AppContext, camera: str | None, gid: int | None, secs: float, pro
                 ".mp4",
                 lambda p: render_camera(
                     conn,
-                    ctx.cfg,
+                    cfg,
                     camera,
                     p,
                     end_s=end,
@@ -68,6 +69,7 @@ def mosaic(ctx: AppContext, gid: int | None, secs: float, progress):
     gid = gid or None
     end = float(secs) if secs and secs > 0 else None
     with ctx.db() as conn:
+        cfg = ctx.render_cfg(conn, gid)
         return str(
             ctx.cached(
                 conn,
@@ -76,7 +78,7 @@ def mosaic(ctx: AppContext, gid: int | None, secs: float, progress):
                 ".mp4",
                 lambda p: render_mosaic(
                     conn,
-                    ctx.cfg,
+                    cfg,
                     None,
                     p,
                     highlight_gid=gid,

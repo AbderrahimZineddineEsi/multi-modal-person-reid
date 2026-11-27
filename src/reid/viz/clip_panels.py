@@ -12,6 +12,7 @@ from reid.config import Config
 from reid.storage import db
 from reid.viz.colors import gid_color
 from reid.viz.draw import blend_rect, chip_sprite, fmt_time, paste, text_sprite
+from reid.viz.privacy import strong_blur
 
 PANEL_BGR = (30, 26, 22)
 
@@ -80,6 +81,8 @@ def person_card(
         cw = max(1, int(crop.shape[1] * ch / crop.shape[0]))
         cw = min(cw, w // 2)
         crop = cv2.resize(crop, (cw, ch), interpolation=cv2.INTER_AREA)
+        if cfg.render.blur_highlight:  # privacy: the followed person is not to be shown
+            crop = strong_blur(crop)
         card[12 : 12 + ch, x : x + cw] = crop
         x += cw + 14
     paste(card, chip_sprite(f"ID {gid}", rgb, 18), x, 14)

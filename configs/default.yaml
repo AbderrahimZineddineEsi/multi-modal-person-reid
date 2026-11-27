@@ -332,6 +332,9 @@ render:
   # Privacy: identities that stay unblurred besides the highlighted one (lets a mosaic show
   # every person with a box while hiding everyone but these). (default: [])
   blur_keep_gids: []
+  # Privacy: blur the highlighted person too (and the crop on the follow clip's card). Used by
+  # the app's showcase mode when the followed person is not on the allow-list. (default: false)
+  blur_highlight: false
   # Privacy: optional ground-truth CSV (camera,frame,gid,x1,y1,x2,y2 in processed pixels) whose
   # boxes are also blurred, so people the detector missed are hidden too. (default: "")
   privacy_gt: ""

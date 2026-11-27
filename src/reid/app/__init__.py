@@ -11,6 +11,7 @@ import gradio as gr
 
 from reid.app import components as C
 from reid.app import envbar
+from reid.app.showcase import Showcase
 from reid.app.state import AppContext
 from reid.app.tabs import admin, cameras, clips, explore, find, metrics, overview, process, search
 from reid.app.theme import ReidTheme, launch_style
@@ -28,17 +29,19 @@ def build_app(
     workspace: Path | None = None,
     env: str | None = None,
     read_only: bool = False,
+    showcase: Showcase | None = None,
 ) -> gr.Blocks:
     """Create the app. No model is loaded and no run is started until a tab asks for it.
 
     ``workspace`` is the folder whose subfolders are the environments and ``env`` the one
     selected first. Without them ``cfg.data_dir`` is the initial environment and its parent
-    folder the workspace. ``read_only`` leaves out the delete and wipe tools.
+    folder the workspace. ``read_only`` leaves out the delete and wipe tools. ``showcase`` (a
+    :class:`Showcase`) blurs every person who is not on its allow-list, in images and videos.
 
     Gradio 6 takes theme and CSS at launch time: call :func:`launch`, or pass
     ``**launch_style()`` to ``Blocks.launch``.
     """
-    ctx = AppContext(cfg, read_only=read_only, workspace=workspace, env=env)
+    ctx = AppContext(cfg, read_only=read_only, workspace=workspace, env=env, showcase=showcase)
     with gr.Blocks(title="reid", analytics_enabled=False) as demo:
         ctx.ui["demo"] = demo
         gr.HTML(
@@ -66,6 +69,7 @@ def launch(
     workspace: Path | None = None,
     env: str | None = None,
     read_only: bool = False,
+    showcase: Showcase | None = None,
     port: int | None = None,
     host: str | None = None,
     block: bool = True,
@@ -74,13 +78,13 @@ def launch(
 
     Sharing a public link without a password is refused: with ``share=True`` and no ``auth`` a
     password is generated and returned (and logged). ``read_only`` hides the delete and wipe
-    tools.
+    tools. ``showcase`` turns on the display-only privacy mode (:mod:`reid.app.showcase`).
     """
     if share and auth is None:
         auth = ("reid", secrets.token_urlsafe(9))
         log.warning("share=True without auth: generated login %s / %s", *auth)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    demo = build_app(cfg, workspace=workspace, env=env, read_only=read_only)
+    demo = build_app(cfg, workspace=workspace, env=env, read_only=read_only, showcase=showcase)
     kwargs: dict[str, Any] = {
         **launch_style(),
         "allowed_paths": [str(demo.ctx.workspace)],  # type: ignore[attr-defined]

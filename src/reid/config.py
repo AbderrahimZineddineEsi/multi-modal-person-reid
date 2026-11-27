@@ -435,6 +435,11 @@ class RenderCfg(_Section):
         "Privacy: identities that stay unblurred besides the highlighted one (lets a mosaic show "
         "every person with a box while hiding everyone but these).",
     )
+    blur_highlight: bool = _f(
+        False,
+        "Privacy: blur the highlighted person too (and the crop on the follow clip's card). "
+        "Used by the app's showcase mode when the followed person is not on the allow-list.",
+    )
     privacy_gt: str = _f(
         "",
         "Privacy: optional ground-truth CSV (camera,frame,gid,x1,y1,x2,y2 in processed pixels) "

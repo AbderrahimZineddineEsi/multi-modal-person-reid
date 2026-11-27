@@ -222,6 +222,7 @@ class Style:
     blur_others: bool = False
     blur_strength: float = 0.35
     blur_keep_gids: frozenset[int] = frozenset()  # never blurred (besides the highlighted gid)
+    blur_highlight: bool = False  # True: the highlighted person is blurred like anybody else
     privacy: PrivacyIndex | None = None  # extra boxes to blur, from a ground-truth CSV
     draw_others: bool = True  # False: only the highlighted person gets a box (others stay blurred)
     trail_len: int = 30
@@ -249,6 +250,7 @@ class Style:
             blur_others=r.blur_others,
             blur_strength=r.blur_strength,
             blur_keep_gids=frozenset(r.blur_keep_gids),
+            blur_highlight=r.blur_highlight,
             privacy=privacy,
             trail_len=r.trail_len,
             hud=r.show_hud,
@@ -533,7 +535,7 @@ def _privacy_blur(
     """
     from reid.viz.privacy import blur_boxes
 
-    hl = st.highlight_gid
+    hl = None if st.blur_highlight else st.highlight_gid
     ox, oy = off
 
     def tb(b) -> tuple[float, float, float, float]:

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from reid.app import environments as envs
+from reid.app import showcase as sc
 from reid.config import Config, load_config
 from reid.models.registry import Models
 from reid.storage import db, files
@@ -55,8 +56,11 @@ class AppContext:
         read_only: bool = False,
         workspace: Path | None = None,
         env: str | None = None,
+        showcase: sc.Showcase | None = None,
     ) -> None:
         self.read_only = read_only
+        self.showcase = showcase  # None: off, the app shows everything as before
+        self._show_cache: dict[str, Any] = {}  # showcase: decisions of the selected environment
         self.ui: dict[str, Any] = {}  # components that tabs register for each other
         self.find_cache: dict[str, Any] = {}  # Find tab: attribute table of the selected env
         self._models: Models | None = None
@@ -140,6 +144,40 @@ class AppContext:
     def models_loaded(self) -> bool:
         return self._models is not None
 
+    # ------------------------------------------------------------------ showcase
+
+    def show_view(self, conn: sqlite3.Connection) -> sc.ShowView | None:
+        """Who may be shown sharp in the selected environment (None when showcase is off).
+
+        Rebuilt when tracklets, identities or attribute rows change, so an edit never keeps a
+        stale permission.
+        """
+        if self.showcase is None:
+            return None
+        n_attr = conn.execute("SELECT COUNT(*) FROM tracklet_attributes").fetchone()[0]
+        key = (str(self.data_dir), self.fingerprint(conn), n_attr, self.showcase.key())
+        hit = self._show_cache.get("view")
+        if hit is None or hit[0] != key:
+            view = sc.build_view(self.showcase, self.env, self.data_dir, conn)
+            hit = self._show_cache["view"] = (key, view)
+        return hit[1]
+
+    def render_cfg(self, conn: sqlite3.Connection, highlight: int | None = None) -> Config:
+        """Config for a video render: ``self.cfg`` itself, or (showcase) a blurring copy of it."""
+        view = self.show_view(conn)
+        if view is None:
+            return self.cfg
+        gt = self.data_dir / "gt.csv"
+        if not gt.exists():
+            return sc.apply_to_cfg(self.cfg, view, highlight)
+        key = (view.signature, gt.stat().st_mtime_ns)
+        hit = self._show_cache.get("gt")
+        if hit is None or hit[0] != key:
+            from reid.app.showcase_gt import gt_keep_ids
+
+            hit = self._show_cache["gt"] = (key, gt_keep_ids(conn, gt, view.gids))
+        return sc.apply_to_cfg(self.cfg, view, highlight, hit[1], str(gt))
+
     # ------------------------------------------------------------------ render cache
 
     def fingerprint(self, conn: sqlite3.Connection) -> str:
@@ -163,7 +201,12 @@ class AppContext:
         The file is ``<kind>_<tag>_<hash>``: ``tag`` is for people (``gid5``, ``cam_01_gid3``),
         the hash keys the cache.
         """
-        key = json.dumps([kind, params, self.fingerprint(conn)], sort_keys=True, default=str)
+        parts: list[Any] = [kind, params, self.fingerprint(conn)]
+        view = self.show_view(conn)
+        if view is not None:  # a render made without the blur must never be served in showcase
+            gt = self.data_dir / "gt.csv"
+            parts += ["showcase", view.signature, gt.stat().st_mtime_ns if gt.exists() else 0]
+        key = json.dumps(parts, sort_keys=True, default=str)
         digest = hashlib.sha1(key.encode()).hexdigest()[:8]
         name = "_".join(x for x in (kind, _slug(tag), digest) if x)
         out = files.render_path(self.data_dir, f"app/{name}{suffix}")

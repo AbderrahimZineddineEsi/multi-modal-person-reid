@@ -81,3 +81,18 @@ def blur_boxes(
             continue
         k = max(3, int(bw * strength)) | 1
         img[b:d, a:c] = cv2.GaussianBlur(img[b:d, a:c], (k, k), 0)
+
+
+def strong_blur(img: np.ndarray, width: int = 10) -> np.ndarray:
+    """Copy of ``img`` made unrecognisable: shrunk to ``width`` px wide, enlarged, then Gaussian.
+
+    Meant for person crops that must not be identifiable even at full size (the app's showcase
+    mode). The image size is unchanged, so layouts do not move.
+    """
+    h, w = img.shape[:2]
+    small = cv2.resize(
+        img, (width, max(2, round(width * h / max(w, 1)))), interpolation=cv2.INTER_AREA
+    )
+    out = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+    k = max(3, (max(w, h) // 6) | 1)
+    return cv2.GaussianBlur(out, (k, k), 0)

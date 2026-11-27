@@ -10,7 +10,7 @@ import math
 import sqlite3
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -113,10 +113,16 @@ def to_options(
     )
 
 
+def effective_options(ctx: AppContext, opts: ClipOptions) -> ClipOptions:
+    """``opts``, with the privacy blur forced on in showcase mode (the plan and estimate know)."""
+    return replace(opts, blur_others=True) if ctx.showcase is not None else opts
+
+
 def preview_plan(ctx: AppContext, gid: int, opts: ClipOptions) -> tuple[ClipPlan, float]:
     """The plan and its estimated render time (seconds), the same plan the renderer uses."""
     from reid.viz.clip_cost import estimate
 
+    opts = effective_options(ctx, opts)
     with ctx.db() as conn:
         plan = plan_clip(conn, gid, opts)
     return plan, estimate(plan, ctx.clip_model())
@@ -131,16 +137,18 @@ def render_cached(
     records its measured speed for later estimates; ``seconds`` is None on a cache hit.
     """
     measured: list[float] = []
+    opts = effective_options(ctx, opts)
     with ctx.db() as conn:
+        cfg = ctx.render_cfg(conn, gid)  # showcase: a blurring copy, never the shared config
         plan = plan_clip(conn, gid, opts)
         if plan.empty:
             raise ValueError("The person has no sighting in the selected cameras and window.")
 
         def make(path: Path) -> None:
-            res = render_clip(conn, ctx.cfg, gid, path, opts, progress, plan)
+            res = render_clip(conn, cfg, gid, path, opts, progress, plan)
             measured.append(res.seconds)
             ctx.record_clip(plan, res.seconds, res.frames)
 
-        params = {"opts": opts.key(), "render": ctx.cfg.render.model_dump()}
+        params = {"opts": opts.key(), "render": cfg.render.model_dump()}
         path = ctx.cached(conn, "clip", params, ".mp4", make, tag=f"gid{int(gid)}")
     return path, plan, (measured[0] if measured else None)
