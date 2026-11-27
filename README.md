@@ -13,7 +13,7 @@ card or even a CPU, keeps all data local, and ships as an installable Python pac
 web app.
 
 <p align="center">
-  <a href="assets/showcase/aicity_follow.mp4"><img src="assets/showcase/aicity_follow.gif" width="840" alt="One shopper followed across four cameras of a 16-camera store with the same ID"></a>
+  <a href="assets/showcase/aicity_follow.mp4"><img src="assets/showcase/aicity_follow.gif" width="640" alt="One shopper followed across four cameras of a 16-camera store with the same ID"></a>
 </p>
 
 *One shopper (ID 6) followed through four of the 16 cameras of an AI City Challenge store, 50 seconds at 3x
@@ -88,10 +88,10 @@ constraint, which targets exactly the main error measured here: one person split
 effect has not been measured on this benchmark.
 
 <p align="center">
-  <a href="assets/showcase/aicity_mosaic.mp4"><img src="assets/showcase/aicity_mosaic.jpg" width="900" alt="All 16 cameras of scene 075 with every person tracked and labelled"></a>
+  <a href="assets/showcase/aicity_mosaic.mp4"><img src="assets/showcase/aicity_mosaic.gif" width="640" alt="All 16 cameras of scene 075 with every person tracked and labelled"></a>
 </p>
 
-*All 16 cameras of scene 075 at once ([30 s video](assets/showcase/aicity_mosaic.mp4)), from the minute where
+*All 16 cameras of scene 075 at once (8 s loop; [30 s video](assets/showcase/aicity_mosaic.mp4)), from the minute where
 29 of its 30 people kept a single ID. Every box and ID label is the system's own output; people are blurred for
 privacy, except ID 6, the man followed in the clip at the top.*
 
@@ -105,11 +105,11 @@ On the 2-minute, 4-camera slice of scene 075 used for tuning (10 people), the `b
 on a Colab T4. How the numbers are measured: [technical report](docs/technical_report.md).
 
 <p align="center">
-  <img src="assets/showcase/hero.gif" width="760" alt="One worker followed from camera to camera with the same ID">
+  <img src="assets/showcase/hero.gif" width="560" alt="One worker followed from camera to camera with the same ID">
 </p>
 
 <p align="center">
-  <img src="assets/showcase/identities.png" width="760" alt="The four workers, each with one identity across cameras">
+  <img src="assets/showcase/identities.png" width="560" alt="The four workers, each with one identity across cameras">
 </p>
 
 *Eight clips of the same four warehouse workers, filmed from eight angles. The system gives each man one
@@ -132,35 +132,26 @@ tables and caveats: [Market-1501 zero-shot test](docs/market1501_zero_shot.md).
 A Gradio web app on top of the same local database. The captures below run on AI City scene 075 (16 cameras,
 46 identities); everyone except the men is blurred for privacy by the app's showcase mode.
 
-**Find people by how they look.** Tick what the person looked like (here: male, black top) and the 1,787
-appearances of the scene are re-ranked as you click, closest match first. A card opens every appearance of that
-person, with links to their journey and to a follow clip.
+<table>
+<tr>
+<td width="50%" valign="top"><b>Find people by how they look.</b> Tick what the person looked like (here: male, black
+top) and the 1,787 appearances of the scene are re-ranked as you click, closest match first.<br><br>
+<a href="assets/showcase/app_find.mp4"><img src="assets/showcase/app_find.gif" width="420" alt="Find tab: filtering people by gender and clothing colour, then opening one person"></a></td>
+<td width="50%" valign="top"><b>Search by photo.</b> Drop in a photo of someone and get their identity, how sure the
+match is, and where and when they were seen. Body, face or both.<br><br>
+<a href="assets/showcase/app_search.mp4"><img src="assets/showcase/app_search.gif" width="420" alt="Search tab: a photo of one man matched to Person 6 with his journey"></a></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><b>Follow one person.</b> Pick a person, cameras, a time window and a speed; the plan and
+the render time estimate appear before anything is rendered.<br><br>
+<a href="assets/showcase/app_clips.mp4"><img src="assets/showcase/app_clips.gif" width="420" alt="Clips tab: planning and playing a follow clip of Person 6"></a></td>
+<td width="50%" valign="top"><b>Process new footage.</b> Create an environment, upload videos (or paste links), choose a
+preset and run. Here three warehouse clips on a GTX 1050 laptop GPU (waiting sped up).<br><br>
+<a href="assets/showcase/app_process.mp4"><img src="assets/showcase/app_process.gif" width="420" alt="Process tab: three videos uploaded and processed into a new environment"></a></td>
+</tr>
+</table>
 
-<p align="center">
-  <a href="assets/showcase/app_find.mp4"><img src="assets/showcase/app_find.gif" width="840" alt="Find tab: filtering people by gender and clothing colour, then opening one person"></a>
-</p>
-
-**Search by photo.** Drop in a photo of someone and get their identity, how sure the match is, and where and
-when they were seen. Body, face or both.
-
-<p align="center">
-  <a href="assets/showcase/app_search.mp4"><img src="assets/showcase/app_search.gif" width="840" alt="Search tab: a photo of one man matched to Person 6 with his journey"></a>
-</p>
-
-**Follow one person.** Pick a person, the cameras, a time window and a playback speed. The plan (which camera
-is shown when, what gets skipped) and the render time estimate appear before anything is rendered; the clip
-cuts to whichever camera sees them.
-
-<p align="center">
-  <a href="assets/showcase/app_clips.mp4"><img src="assets/showcase/app_clips.gif" width="840" alt="Clips tab: planning and playing a follow clip of Person 6"></a>
-</p>
-
-**Process new footage.** Create an environment, upload videos (or paste links), choose a preset and run. Here
-three warehouse clips on a GTX 1050 laptop GPU (the waiting is sped up).
-
-<p align="center">
-  <a href="assets/showcase/app_process.mp4"><img src="assets/showcase/app_process.gif" width="840" alt="Process tab: three videos uploaded and processed into a new environment"></a>
-</p>
+Click a GIF for the full-resolution video.
 
 | | |
 |---|---|

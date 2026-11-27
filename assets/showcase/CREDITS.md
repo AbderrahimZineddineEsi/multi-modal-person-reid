@@ -43,6 +43,7 @@ person who is not on a hand-picked allow-list of men (default deny, see the tech
 Footage: NVIDIA AI City Challenge 2024, Track 1, test scene 075 (synthetic people), from the
 [PhysicalAI-SmartSpaces](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces) dataset, CC-BY-4.0.
 Rendered from this system's own tracking output (`balanced` preset, Kaggle T4). Mosaic: scene time 4:50-5:20.
+`aicity_mosaic.gif` is its first 8 s at 720 px, 8 fps.
 Follow clip: `reid journey --gid 6 --start 150 --end 200 --cameras cam_0710,cam_0712,cam_0702,cam_0699
 --speed 3 --blur-others --thumbs 4 --width 1440` (scene time 2:30-3:20; cam_0706 left out because a tiny figure
 at the far end of its view has neither a detection nor a ground-truth box). Every person except the followed man
