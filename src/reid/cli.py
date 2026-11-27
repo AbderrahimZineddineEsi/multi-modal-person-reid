@@ -14,6 +14,7 @@ import yaml
 
 from reid.cli_attributes import cmd_attributes
 from reid.cli_benchmark import cmd_benchmark
+from reid.cli_find import cmd_find
 from reid.config import Config, load_config
 from reid.storage import db, files
 
@@ -621,6 +622,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "process": (cmd_process, "process camera videos into tracklets and identities"),
     "render": (cmd_render, "render annotated videos from stored track points"),
     "search": (cmd_search, "search identities by body/face image"),
+    "find": (cmd_find, "find people by attributes (apparent gender, clothes colours, bags...)"),
     "journey": (cmd_journey, "show or render the journey of one identity"),
     "evaluate": (cmd_evaluate, "evaluate against a labelled dataset"),
     "dataset": (cmd_dataset, "fetch labelled multi-camera footage (AI City 2024)"),
@@ -628,7 +630,10 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "app": (cmd_app, "launch the Gradio app"),
     "env": (cmd_env, "list, export, import or relink environments (Colab to PC)"),
     "benchmark": (cmd_benchmark, "official AI City 2024 benchmark: run scenes, score with HOTA"),
-    "attributes": (cmd_attributes, "pedestrian attribute head: fetch, embed, train, report"),
+    "attributes": (
+        cmd_attributes,
+        "pedestrian attribute head: train it, install it, annotate data",
+    ),
     "sync": (cmd_sync, "sync environments with a Drive folder / rclone remote (PC <-> Colab)"),
     "info": (cmd_info, "print the effective config and data_dir statistics"),
 }

@@ -188,6 +188,21 @@ class BodyReidCfg(_Section):
     )
 
 
+class AttributesCfg(_Section):
+    """Pedestrian attributes (apparent gender, clothes colours, bags...) for the Find tab."""
+
+    enabled: bool = _f(
+        True,
+        "Annotate every tracklet with attribute probabilities after each camera, when a "
+        "compatible head is available (a head trained on another body model is ignored).",
+    )
+    head: str = _f(
+        "",
+        "Path to the attribute head.npz (empty = <weights cache>/attributes/head.npz, installed "
+        "by `reid attributes use-head`).",
+    )
+
+
 class TrackletsCfg(_Section):
     """Tracklet building and finalization."""
 
@@ -441,6 +456,7 @@ class Config(_Section):
     quality: QualityCfg = Field(default_factory=QualityCfg)
     tracking: TrackingCfg = Field(default_factory=TrackingCfg)
     body_reid: BodyReidCfg = Field(default_factory=BodyReidCfg)
+    attributes: AttributesCfg = Field(default_factory=AttributesCfg)
     tracklets: TrackletsCfg = Field(default_factory=TrackletsCfg)
     face: FaceCfg = Field(default_factory=FaceCfg)
     association: AssociationCfg = Field(default_factory=AssociationCfg)

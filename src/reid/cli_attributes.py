@@ -4,6 +4,8 @@
 ReID model (resumable shards); ``train`` fits the MLP head on the stored embeddings; ``report``
 evaluates it on the test splits; ``hpo`` searches the head's hyperparameters with Optuna and
 ``hpo-final`` compares default and best on several seeds (see :mod:`reid.attributes`).
+``use-head`` installs a trained head where the pipeline finds it and ``backfill`` annotates the
+tracklets of existing environments with it (:mod:`reid.attributes.annotate`).
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from pathlib import Path
 
 
 def cmd_attributes(args: argparse.Namespace) -> int:
-    """Dispatch ``reid attributes fetch|embed|train|report|hpo|hpo-final``."""
+    """Dispatch ``reid attributes fetch|embed|train|report|hpo|hpo-final|use-head|backfill``."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -24,7 +26,7 @@ def cmd_attributes(args: argparse.Namespace) -> int:
     )
     cmds = {
         "fetch": _fetch, "embed": _embed, "train": _train, "report": _report,
-        "hpo": _hpo, "hpo-final": _hpo_final,
+        "hpo": _hpo, "hpo-final": _hpo_final, "use-head": _use_head, "backfill": _backfill,
     }  # fmt: skip
     return cmds[args.attr_cmd](args)
 
@@ -111,6 +113,71 @@ def _hpo_final(args: argparse.Namespace) -> int:
     return 0
 
 
+def _use_head(args: argparse.Namespace) -> int:
+    import json
+    import shutil
+
+    from reid.attributes.annotate import default_head_path
+    from reid.attributes.head import head_file, load_head
+    from reid.attributes.ui_labels import RELIABLE
+    from reid.cli import _build_config
+    from reid.storage.attributes_db import head_sha256
+
+    src = head_file(args.path)
+    try:
+        head = load_head(src)
+    except (OSError, ValueError, KeyError) as exc:
+        sys.stderr.write(f"reid attributes use-head: cannot read {src}: {exc}\n")
+        return 1
+    dst = default_head_path(_build_config(args))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.resolve() != dst.resolve():
+        shutil.copyfile(src, dst)
+    trained = [n for n, t in zip(head.labels, head.trained_labels, strict=True) if t]
+    summary = {
+        "installed": str(dst),
+        "sha256": head_sha256(head)[:16],
+        "body_model": head.body_model,
+        "neck_feat": head.neck_feat,
+        "labels": len(head.labels),
+        "trained_labels": len(trained),
+        "reliable_in_ui": len([n for n in trained if n in RELIABLE]),
+        "best_val_mA": head.hparams.get("best_val_ma"),
+    }
+    metrics = sorted(src.parent.parent.glob("report/metrics_*.json"))
+    if metrics:
+        for name, res in json.loads(metrics[0].read_text()).get("datasets", {}).items():
+            summary[f"test_mA_{name}"] = round(float(res["ma"]), 4)
+    sys.stdout.write(json.dumps(summary, indent=2) + "\n")
+    sys.stdout.write(
+        "next: reid attributes backfill --workspace <WS>   (annotates existing data)\n"
+    )
+    return 0
+
+
+def _backfill(args: argparse.Namespace) -> int:
+    from reid.attributes.annotate import backfill_env, backfill_workspace, load_configured_head
+    from reid.cli import _build_config
+
+    cfg = _build_config(args)
+    head = load_configured_head(cfg)
+    if head is None:
+        sys.stderr.write("reid attributes backfill: no head installed (reid attributes use-head)\n")
+        return 1
+    if args.workspace:
+        results = backfill_workspace(Path(args.workspace).expanduser(), head, args.force)
+    else:
+        results = [backfill_env(cfg.data_dir, head, args.force)]
+    for r in results:
+        note = f"  ({r.reason})" if r.reason else ""
+        sys.stdout.write(
+            f"{r.env:<28} {r.state:<10} +{r.annotated} annotated, {r.total}/{r.n_tracklets} "
+            f"tracklets, {r.seconds:.1f}s{note}\n"
+        )
+    sys.stdout.write(f"{sum(r.seconds for r in results):.1f}s total\n")
+    return 0
+
+
 def _report(args: argparse.Namespace) -> int:
     from reid.attributes.report import run_report
 
@@ -170,6 +237,12 @@ def _attributes_args(p: argparse.ArgumentParser) -> None:
     hf.add_argument("--out", required=True, metavar="DIR", help="the `hpo --out` folder")
     hf.add_argument("--study", default="attr_hpo")
     hf.add_argument("--seeds", type=int, default=3)
+    u = sub.add_parser("use-head", help="install a trained head where the pipeline finds it")
+    u.add_argument("path", metavar="PATH", help="head.npz or its folder")
+    b = sub.add_parser("backfill", help="annotate the tracklets of existing environments")
+    b.add_argument("--workspace", metavar="DIR", help="every environment of this workspace")
+    b.add_argument("--data-dir", default=argparse.SUPPRESS, metavar="DIR", help="one environment")
+    b.add_argument("--force", action="store_true", help="recompute tracklets already annotated")
     r = sub.add_parser("report", help="test-set metrics, per-label table, voting curve")
     r.add_argument("--emb", required=True, metavar="DIR")
     r.add_argument("--head", required=True, metavar="PATH", help="head.npz or its folder")

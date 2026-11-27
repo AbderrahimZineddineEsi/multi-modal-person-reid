@@ -133,6 +133,15 @@ body_reid:
   # Embedding dimension (v1: 768 + 512 concatenated). Must match the model. (default: 1280)
   dim: 1280
 
+# --- attributes: Pedestrian attributes (apparent gender, clothes colours, bags...) for the Find tab.
+attributes:
+  # Annotate every tracklet with attribute probabilities after each camera, when a compatible
+  # head is available (a head trained on another body model is ignored). (default: true)
+  enabled: true
+  # Path to the attribute head.npz (empty = <weights cache>/attributes/head.npz, installed by
+  # `reid attributes use-head`). (default: "")
+  head: ""
+
 # --- tracklets: Tracklet building and finalization.
 tracklets:
   # Finalize a tracklet after its track is missing this long (seconds). (default: 2.0)

@@ -48,6 +48,7 @@ def _delete_tracklets(
         for chunk in _chunks(tids):
             marks = ",".join("?" * len(chunk))
             for table, col in (
+                ("tracklet_attributes", "tracklet_id"),
                 ("tracklet_gid_history", "tracklet_id"),
                 ("samples", "tracklet_id"),
                 ("track_points", "tracklet_id"),

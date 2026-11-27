@@ -10,6 +10,7 @@ from reid.config import CameraSet, CameraSpec, Config  # noqa: E402
 from reid.models.registry import Models  # noqa: E402
 from reid.pipeline import run  # noqa: E402
 from reid.storage import db, files  # noqa: E402
+from reid.storage.vectors import VectorStore  # noqa: E402
 
 W, H, FPS, N = 320, 240, 10.0, 40
 
@@ -148,4 +149,64 @@ def test_max_frames_and_missing_video(tmp_path, cams):
         run(cfg, bad, None, models=fake_models(cfg))
     conn = db.connect(files.db_path(cfg.data_dir))
     assert db.list_runs(conn)[-1]["status"] == "failed"
+    conn.close()
+
+
+class SamplingEngine(FakeEngine):
+    """Like the identity engine: writes samples and body_samples vectors for every tracklet."""
+
+    def __init__(self, conn, data_dir):
+        super().__init__()
+        self.conn = conn
+        self.store = type("Store", (), {})()
+        self.store.vectors = VectorStore(files.vectors_dir(data_dir))
+
+    def on_tracklet(self, t):
+        sids = db.add_samples(self.conn, t.id, [(s.frame, s.quality) for s in t.samples])
+        self.store.vectors.get("body_samples").add(
+            sids, np.tile(np.eye(8, dtype=np.float32)[0], (len(sids), 1))
+        )
+        return super().on_tracklet(t)
+
+
+def _run_with_head(tmp_path, cams, enabled=True, head=True, **over):
+    from reid.attributes.head import save_head
+    from tests.attr_synth import make_head
+
+    cfg = make_cfg(
+        tmp_path, attributes={"enabled": enabled, "head": str(tmp_path / "head.npz")}, **over
+    )
+    if head:
+        save_head(tmp_path / "head.npz", make_head())
+    conn = db.connect(files.db_path(cfg.data_dir))
+    eng = SamplingEngine(conn, cfg.data_dir)
+    res = run(cfg, cams, eng, models=fake_models(cfg), conn=conn)
+    return conn, res
+
+
+def test_attributes_annotated_after_each_camera(tmp_path, cams):
+    conn, res = _run_with_head(tmp_path, cams)
+    n_attr = conn.execute("SELECT COUNT(*) FROM tracklet_attributes").fetchone()[0]
+    assert res.tracklets >= 4 and n_attr == res.tracklets
+    conn.close()
+
+
+def test_attributes_off_missing_or_failing_never_fail_a_run(tmp_path, cams, monkeypatch):
+    for kw in ({"enabled": False}, {"head": False}):
+        sub = tmp_path / ("a" if "enabled" in kw else "b")
+        sub.mkdir()
+        make_video(sub / "a.mp4"), make_video(sub / "b.mp4")
+        cs = CameraSet(cameras=[CameraSpec(id=c, video_path=str(sub / f"{c}.mp4")) for c in "ab"])
+        conn, res = _run_with_head(sub, cs, **kw)
+        assert res.tracklets >= 4
+        assert conn.execute("SELECT COUNT(*) FROM tracklet_attributes").fetchone()[0] == 0
+        conn.close()
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("reid.attributes.annotate.annotate", boom)
+    conn, res = _run_with_head(tmp_path, cams)
+    assert db.get_run(conn, res.run_id)["status"] == "done" and res.tracklets >= 4
+    assert conn.execute("SELECT COUNT(*) FROM tracklet_attributes").fetchone()[0] == 0
     conn.close()

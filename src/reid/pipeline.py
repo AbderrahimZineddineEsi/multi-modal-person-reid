@@ -3,6 +3,8 @@
 Cameras are processed sequentially into one run and one shared identity space. For each camera:
 read frames, detect people, track, build tracklets (quality-gated samples, faces), persist
 tracklets + every track point, then hand each finalized tracklet to the identity engine.
+After each camera the engine's body samples are run through the attribute head (if a compatible
+one is installed), see :mod:`reid.attributes.annotate`.
 """
 
 from __future__ import annotations
@@ -308,6 +310,7 @@ def run(
     models.warm()
     res.model_load_s = time.perf_counter() - t_load
     ms = dict.fromkeys(("read", "detect", "track", "pose", "reid", "face"), 0.0)
+    head = _attribute_head(cfg, engine)
     t_all = time.perf_counter()
     try:
         for spec in cameras.cameras:
@@ -315,6 +318,8 @@ def run(
             res.cameras.append(st)
             if engine is not None:
                 engine.end_camera(spec.id)
+                if head is not None:
+                    _annotate(conn, engine, head, run_id, spec.id)
         if engine is not None:
             res.identity_report = engine.end_run(run_id)
         db.set_run_status(conn, run_id, "done")
@@ -343,6 +348,32 @@ def run(
     log.info("run %d done: %s", run_id, res.ms_per_frame)
     log.info("run %d: %s", run_id, format_peak(monitor.peak))
     return res
+
+
+def _attribute_head(cfg: Config, engine: IdentityEngineLike | None) -> Any:
+    """The attribute head to annotate with after each camera, or None (never raises)."""
+    if engine is None or not cfg.attributes.enabled:
+        return None
+    try:
+        from reid.attributes.annotate import resolve_head
+
+        return resolve_head(cfg)
+    except Exception as exc:  # attributes are optional: never fail a run
+        log.warning("attributes disabled: %s", exc)
+        return None
+
+
+def _annotate(
+    conn: sqlite3.Connection, engine: IdentityEngineLike, head: Any, run_id: int, camera_id: str
+) -> None:
+    """Attribute probabilities of a camera's tracklets (needs the engine's ``body_samples``)."""
+    vectors = getattr(getattr(engine, "store", None), "vectors", None)
+    if vectors is None:
+        return
+    from reid.attributes.annotate import annotate_camera
+
+    n = annotate_camera(conn, vectors, head, run_id, camera_id)
+    log.info("camera %s: %d tracklets annotated with attributes", camera_id, n)
 
 
 def _cuda_index(device: str) -> int:

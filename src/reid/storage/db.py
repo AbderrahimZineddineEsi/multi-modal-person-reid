@@ -17,7 +17,7 @@ import numpy as np
 
 from reid.types import CameraInfo, Identity, Tracklet, TrackPoint
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -117,6 +117,28 @@ CREATE TABLE IF NOT EXISTS identity_cannot_links (
     reason TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (gid_a, gid_b)
 );
+
+-- v3: pedestrian attribute heads (the weights themselves live in a head.npz) and the
+-- attribute probabilities of each tracklet (see reid.attributes.annotate / reid.find).
+CREATE TABLE IF NOT EXISTS attribute_heads (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    sha256          TEXT NOT NULL UNIQUE,
+    body_model      TEXT NOT NULL,
+    neck_feat       TEXT NOT NULL,
+    labels_json     TEXT NOT NULL,
+    groups_json     TEXT NOT NULL,
+    thresholds_json TEXT NOT NULL,
+    trained_json    TEXT NOT NULL,
+    created_at      REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tracklet_attributes (
+    tracklet_id INTEGER NOT NULL REFERENCES tracklets(id),
+    head_id     INTEGER NOT NULL REFERENCES attribute_heads(id),
+    probs       BLOB NOT NULL,       -- float32[n_labels]: quality-weighted mean over the samples
+    n_samples   INTEGER NOT NULL,
+    PRIMARY KEY (tracklet_id, head_id)
+) WITHOUT ROWID;
 """
 
 POINT_DTYPE = np.dtype(
@@ -164,7 +186,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT version FROM schema_version").fetchone()
     if row is None:
         conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-    elif row["version"] == 1:  # v1 -> v2: samples + identity_cannot_links (created above)
+    elif row["version"] in (1, 2):  # v1 -> v2 -> v3: new tables only (created above), additive
         conn.execute("UPDATE schema_version SET version=?", (SCHEMA_VERSION,))
     elif row["version"] != SCHEMA_VERSION:
         raise RuntimeError(
