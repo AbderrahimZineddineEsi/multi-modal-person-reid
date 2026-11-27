@@ -15,6 +15,7 @@ import yaml
 from reid.cli_attributes import cmd_attributes
 from reid.cli_benchmark import cmd_benchmark
 from reid.cli_find import cmd_find
+from reid.cli_journey import cmd_journey
 from reid.config import Config, load_config
 from reid.storage import db, files
 
@@ -191,61 +192,6 @@ def _search_args(p: argparse.ArgumentParser) -> None:
 
 
 cmd_search.add_arguments = _search_args  # type: ignore[attr-defined]
-
-
-def cmd_journey(args: argparse.Namespace) -> int:
-    """``reid journey --gid G [--out F] [--gif] [--no-video]``: print the journey, render a clip."""
-
-    from reid import analytics
-
-    cfg = _build_config(args)
-    logging.basicConfig(level=cfg.runtime.log_level, format="%(levelname)s %(name)s: %(message)s")
-    conn = db.connect(files.db_path(cfg.data_dir))
-    try:
-        steps = analytics.journey(conn, args.gid)
-        if not steps:
-            sys.stderr.write(f"reid journey: identity {args.gid} has no tracklets\n")
-            return 1
-        for s in steps:
-            gap = "" if s.gap_s is None else f"  (gap {s.gap_s:+.1f} s)"
-            sys.stdout.write(
-                f"{s.camera_name:<16} {s.start_ts:8.1f} s -> {s.end_ts:8.1f} s "
-                f"[{s.duration_s:5.1f} s]{gap}\n"
-            )
-        if args.no_video:
-            return 0
-        from reid.viz.journey import follow_person
-        from reid.viz.render import export_gif
-
-        out = (
-            Path(args.out)
-            if args.out
-            else files.render_path(cfg.data_dir, f"journey_gid{args.gid}.mp4")
-        )
-        try:
-            follow_person(conn, cfg, args.gid, out, start_s=args.start, end_s=args.end)
-        except FileNotFoundError as exc:
-            sys.stderr.write(f"reid journey: {exc}\n")
-            return 1
-        sys.stdout.write(f"{out}\n")
-        if args.gif:
-            g = export_gif(out, out.with_suffix(".gif"), cfg.render.gif_fps, cfg.render.gif_width)
-            sys.stdout.write(f"{g}\n")
-    finally:
-        conn.close()
-    return 0
-
-
-def _journey_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--gid", type=int, required=True, help="identity to follow")
-    p.add_argument("--out", help="output mp4 (default data_dir/renders/journey_gid<G>.mp4)")
-    p.add_argument("--gif", action="store_true", help="also export a GIF")
-    p.add_argument("--no-video", action="store_true", help="only print the journey")
-    p.add_argument("--start", type=float, help="clip: start second on the shared timeline")
-    p.add_argument("--end", type=float, help="clip: end second on the shared timeline")
-
-
-cmd_journey.add_arguments = _journey_args  # type: ignore[attr-defined]
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:

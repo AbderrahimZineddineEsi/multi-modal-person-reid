@@ -223,6 +223,7 @@ class Style:
     blur_strength: float = 0.35
     blur_keep_gids: frozenset[int] = frozenset()  # never blurred (besides the highlighted gid)
     privacy: PrivacyIndex | None = None  # extra boxes to blur, from a ground-truth CSV
+    draw_others: bool = True  # False: only the highlighted person gets a box (others stay blurred)
     trail_len: int = 30
     hud: bool = True
     unidentified: RGB = (128, 128, 128)
@@ -507,9 +508,12 @@ def draw_view(
     dets = tracks.dets_at(frame_idx, st.gid_filter)
     if st.blur_others or st.privacy:
         _privacy_blur(img, tracks.camera_id, frame_idx, dets, st, s, off)
+    n_people = len(dets)
+    if not st.draw_others and st.highlight_gid is not None:
+        dets = [d for d in dets if d.gid == st.highlight_gid]
     draw_dets(img, dets, st, s, off)
     if st.hud if hud is None else hud:
-        draw_hud(img, name, t if t is not None else frame_idx / tracks.camera.fps, len(dets))
+        draw_hud(img, name, t if t is not None else frame_idx / tracks.camera.fps, n_people)
     return img
 
 

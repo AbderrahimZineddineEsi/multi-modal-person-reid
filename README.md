@@ -17,7 +17,7 @@ web app.
 
 *One shopper (ID 6) followed through four of the 16 cameras of an AI City Challenge store: the large view cuts to
 whichever camera sees him, the timeline shows where he was seen. He keeps the same ID in every camera,
-without any training on this data. Other people were blurred to focus on the man being followed,
+without any training on this data. Other people were blurred for privacy,
 but they are detected and tracked too (see the 16-camera view below).
 [Full clip](assets/showcase/aicity_follow.mp4) · footage: NVIDIA AI City 2024, CC-BY-4.0.*
 
@@ -88,8 +88,8 @@ effect has not been measured on this benchmark.
 </p>
 
 *All 16 cameras of scene 075 at once ([30 s video](assets/showcase/aicity_mosaic.mp4)), from the minute where
-29 of its 30 people kept a single ID. Every box and ID label is the system's own output; people are blurred to
-keep the focus on the tracking, except ID 6, the man followed in the clip at the top.*
+29 of its 30 people kept a single ID. Every box and ID label is the system's own output; people are blurred for
+privacy, except ID 6, the man followed in the clip at the top.*
 
 Numbers, protocol and limits: [technical report §7](docs/technical_report.md). Reproduce with the
 [Kaggle notebook](notebooks/kaggle_aicity_benchmark.ipynb) (below).
@@ -124,7 +124,8 @@ identity there), search 4/4. Processed on a laptop-class GTX 1050 (3 GB) at 8.5 
 | ![Search by photo](assets/showcase/app_search.png) | ![Metrics](assets/showcase/app_metrics.png) |
 
 Tabs: **Overview** (people and cameras), **Process** (upload videos or paste video links), **Explore**
-(a person's journey, time line and follow clip), **Search** (by body, face or both), **Cameras**,
+(a person's journey and time line), **Clips** (a follow-this-person video: pick cameras, time window and speed,
+see the plan and the render time first), **Search** (by body, face or both), **Cameras**,
 **Metrics** (speed per stage, GPU memory, evaluation) and **Admin** (merge, split, rename, delete,
 environments). Public links require a login.
 
@@ -198,7 +199,7 @@ Results: see [Official AI City Challenge benchmark](#official-ai-city-challenge-
 ```bash
 reid process --cameras my_cameras.yaml            # detect, track, identify (camera set: see configs/cameras/)
 reid search --image query.jpg --mode both
-reid journey --gid 3                              # steps + a follow clip
+reid journey --gid 3 --speed 4 --max-seconds 60   # steps + a follow clip (--plan: estimate only)
 reid render --mosaic                              # all cameras on one timeline
 reid evaluate --gt gt.csv                         # with ground truth
 reid info                                         # hardware, chosen preset and device plan

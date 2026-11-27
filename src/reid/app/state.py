@@ -19,6 +19,10 @@ from reid.models.registry import Models
 from reid.storage import db, files
 from reid.storage.portable import apply_env_models
 from reid.storage.vectors import VectorStore
+from reid.viz.clip_cost import CostModel
+from reid.viz.clip_cost import load_model as load_clip_model
+from reid.viz.clip_cost import record as record_clip_speed
+from reid.viz.clip_plan import ClipPlan
 
 log = logging.getLogger(__name__)
 
@@ -169,6 +173,16 @@ class AppContext:
             make(tmp)
             tmp.replace(out)
         return out
+
+    # ------------------------------------------------------------------ clip speed
+
+    def clip_model(self) -> CostModel:
+        """Render-time model calibrated by the clips rendered in this environment."""
+        return load_clip_model(self.data_dir)
+
+    def record_clip(self, plan: ClipPlan, seconds: float, frames: int) -> dict[str, Any]:
+        """Store the measured speed of a render (``cache/clip_speed.json``) for later estimates."""
+        return record_clip_speed(self.data_dir, plan, seconds, frames)
 
     # ------------------------------------------------------------------ run statistics
 

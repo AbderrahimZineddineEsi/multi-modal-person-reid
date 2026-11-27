@@ -127,3 +127,11 @@ footer { opacity: .5; }
 
 /* person crops are tall: keep heads in view when cropping to a square */
 .rd-picker img { object-position: top center !important; }
+
+/* Clips tab: plan table */
+.rd-plan { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rd-plan th { font-family: var(--rd-mono); font-weight: 400; font-size: 12px; color: var(--rd-muted);
+  text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rd-line); white-space: nowrap; }
+.rd-plan td { padding: 6px 10px; border-bottom: 1px solid var(--rd-line-soft); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.rd-plan td:nth-child(3), .rd-plan td:nth-child(4), .rd-plan td:last-child { font-family: var(--rd-mono); color: var(--rd-muted); }

@@ -60,6 +60,7 @@ def test_build_app_is_lazy_and_has_expected_tabs(tmp_path):
         "Overview",
         "Process",
         "Explore",
+        "Clips",
         "Search",
         "Find",
         "Cameras",
@@ -128,16 +129,12 @@ def test_render_cache_hits_and_invalidates(ctx):
         assert c != a and len(calls) == 3
 
 
-def test_explore_show_and_clip(ctx):
+def test_explore_show(ctx):
     items, gids, drop = explore.refresh_people(ctx, None)
     assert drop["value"] == 1 and set(gids) <= {1, 2}
-    profile, journey, timeline, clip = explore.show(ctx, 1)
-    assert "Person 1" in profile and "cam_a" in journey and clip is None
+    profile, journey, timeline = explore.show(ctx, 1)
+    assert "Person 1" in profile and "cam_a" in journey
     assert "no longer exists" in str(pytest.raises(gr.Error, explore.show, ctx, 99).value)
-    prog = Progress()
-    path = explore.make_clip(ctx, 1, prog)
-    assert path.endswith(".mp4") and prog.calls and "follow_gid1_" in path
-    assert explore.make_clip(ctx, 1, prog) == path  # cached
 
 
 def test_cameras_handlers(ctx):

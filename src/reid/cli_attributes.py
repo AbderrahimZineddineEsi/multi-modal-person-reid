@@ -1,11 +1,12 @@
-"""``reid attributes fetch|embed|train|report|hpo|hpo-final``: the pedestrian attribute head.
+"""``reid attributes fetch|embed|train|report|hpo|hpo-final|eval-external``: attribute head.
 
 ``fetch`` downloads PA-100K and PETA; ``embed`` embeds every image once with the frozen body
 ReID model (resumable shards); ``train`` fits the MLP head on the stored embeddings; ``report``
 evaluates it on the test splits; ``hpo`` searches the head's hyperparameters with Optuna and
 ``hpo-final`` compares default and best on several seeds (see :mod:`reid.attributes`).
 ``use-head`` installs a trained head where the pipeline finds it and ``backfill`` annotates the
-tracklets of existing environments with it (:mod:`reid.attributes.annotate`).
+tracklets of existing environments with it (:mod:`reid.attributes.annotate`). ``eval-external``
+scores the head zero-shot on a dataset it never saw (:mod:`reid.attributes.external_run`).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pathlib import Path
 
 
 def cmd_attributes(args: argparse.Namespace) -> int:
-    """Dispatch ``reid attributes fetch|embed|train|report|hpo|hpo-final|use-head|backfill``."""
+    """Dispatch ``reid attributes <fetch|embed|train|report|hpo|...|eval-external>``."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -27,6 +28,7 @@ def cmd_attributes(args: argparse.Namespace) -> int:
     cmds = {
         "fetch": _fetch, "embed": _embed, "train": _train, "report": _report,
         "hpo": _hpo, "hpo-final": _hpo_final, "use-head": _use_head, "backfill": _backfill,
+        "eval-external": _eval_external,
     }  # fmt: skip
     return cmds[args.attr_cmd](args)
 
@@ -190,6 +192,26 @@ def _report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _eval_external(args: argparse.Namespace) -> int:
+    from reid.attributes.annotate import configured_head_path
+    from reid.attributes.external_run import run_eval_external
+    from reid.cli import _build_config
+
+    head = args.head or configured_head_path(_build_config(args))
+    try:
+        path = run_eval_external(
+            args.dataset, args.root, head, args.out, emb_dir=args.emb,
+            in_domain_path=args.in_domain, attribute_file=args.attribute_file,
+            repeats=args.repeats, min_pos=args.min_pos, seed=args.seed, preset=args.preset,
+            batch=args.batch, workers=args.workers,
+        )  # fmt: skip
+    except (FileNotFoundError, ValueError, KeyError, OSError) as exc:
+        sys.stderr.write(f"reid attributes eval-external: {exc}\n")
+        return 1
+    sys.stdout.write(f"wrote {path}\n")
+    return 0
+
+
 def _attributes_args(p: argparse.ArgumentParser) -> None:
     sub = p.add_subparsers(dest="attr_cmd", required=True)
     f = sub.add_parser("fetch", help="download PA-100K and PETA (no i-LID)")
@@ -243,6 +265,24 @@ def _attributes_args(p: argparse.ArgumentParser) -> None:
     b.add_argument("--workspace", metavar="DIR", help="every environment of this workspace")
     b.add_argument("--data-dir", default=argparse.SUPPRESS, metavar="DIR", help="one environment")
     b.add_argument("--force", action="store_true", help="recompute tracklets already annotated")
+    x = sub.add_parser("eval-external", help="zero-shot test of the head on another dataset")
+    x.add_argument("--dataset", required=True, choices=("market1501",))
+    x.add_argument("--root", required=True, metavar="DIR", help="unzipped dataset + attribute file")
+    x.add_argument(
+        "--attribute-file", metavar="FILE", help="market_attribute.mat (if not in --root)"
+    )
+    x.add_argument(
+        "--head", metavar="PATH", help="head.npz or folder (default: the installed head)"
+    )
+    x.add_argument("--out", default="data/attributes/external", metavar="DIR")
+    x.add_argument("--emb", metavar="DIR", help="embeddings folder (default <out>/emb)")
+    x.add_argument("--in-domain", metavar="JSON", help="metrics_<tag>.json of the head's report")
+    x.add_argument("--repeats", type=int, default=20, help="random draws of the identity vote")
+    x.add_argument("--min-pos", type=int, default=30, help="min positive AND negative identities")
+    x.add_argument("--seed", type=int, default=0)
+    x.add_argument("--preset", default="balanced", help="model preset (default balanced)")
+    x.add_argument("--batch", type=int, default=64)
+    x.add_argument("--workers", type=int, default=None, help="data workers (default min(4, cpus))")
     r = sub.add_parser("report", help="test-set metrics, per-label table, voting curve")
     r.add_argument("--emb", required=True, metavar="DIR")
     r.add_argument("--head", required=True, metavar="PATH", help="head.npz or its folder")

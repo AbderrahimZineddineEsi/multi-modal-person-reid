@@ -252,9 +252,20 @@ cannot-link so consolidation does not undo it.
 - `analytics.py`: pure functions over the database: `journey`, `transitions` (camera to camera matrix),
   `dwell_stats`, `occupancy`, `run_summary` (people count, identified %, face-confirmed %, tracklets per person).
 - `viz/`: `render_camera` (re-reads the video and draws every stored box, H.264 through an ffmpeg pipe), `render_mosaic`
-  (all cameras on the shared timeline), `follow_person` (cuts between cameras along one person's journey),
-  presence timeline, foot-point heatmaps from all track points (per camera, per person).
-- `app/` (Gradio 6.32.0): tabs Overview, Process, Explore, Search, Cameras, Metrics, Admin. Tab files contain
+  (all cameras on the shared timeline), follow-person clips, presence timeline, foot-point heatmaps from all track
+  points (per camera, per person).
+- Follow clips (`viz/clip_plan.py`, `clip_cost.py`, `journey.py`): `plan_clip(conn, gid, ClipOptions)` decides what a
+  clip contains and is used by the app preview, the render time estimate and the renderer alike, so they always
+  agree. The renderer cuts to the camera that sees the person (the one lasting longest among those covering the
+  instant, so hand-offs between overlapping cameras happen as late as possible) and skips stretches where nobody
+  sees them (the cut caption and the plan table give the skipped time). Options: cameras, time window, playback
+  speed (output frame `k` shows shared time `t0 + k * speed / fps`, so 4x renders a quarter of the frames),
+  a cap on the clip length, blur of other people (a copy of the config, never the shared one), boxes of other
+  people on or off, side thumbnails (at most N, chosen by overlapping sightings first and then by nearness in
+  time; fewer when a tile would be under 40 px high) and output width and fps. The render time estimate is a
+  per-frame model (decode, draw, thumbnails, encode) whose constants were measured on the test PC and scaled by a
+  factor learnt from the renders done in the environment (`cache/clip_speed.json`).
+- `app/` (Gradio 6.32.0): tabs Overview, Process, Explore, Clips, Search, Find, Cameras, Metrics, Admin. Tab files contain
   layout and wiring only. Handlers call `reid.pipeline`, `reid.search`, `reid.analytics`, `reid.viz`. Long jobs run in
   worker threads with a concurrency limit of 1. Renders are cached under `renders/app/`, keyed by parameters and a
   fingerprint of the tracklet-to-identity assignment. An environment bar switches between environments.
@@ -473,7 +484,8 @@ Two Kaggle sessions, one scene per T4: 075 + 082, then 078 + 086. Each scene is 
 - **Retrieval gallery is not disjoint** from the query tracklets (a query box is held out of the samples, but not the
   whole tracklet).
 - **Privacy.** Faces and body descriptors are biometric data. Data stays local and shared app links need a login,
-  but there is no consent, retention or blurring feature.
+  and renders can blur everyone except the followed person (`render.blur_others`), so a clip can
+  be shared without showing other people; there is no consent or retention feature.
 - **Licences.** The package is AGPL-3.0 because Ultralytics and boxmot are AGPL. InsightFace weights are
   research-only.
 

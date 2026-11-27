@@ -12,10 +12,9 @@ from typing import Any
 
 import gradio as gr
 
-from reid.app import envbar, find_data, find_states, find_views, videos, views
+from reid.app import clips_data, envbar, find_data, find_states, find_views, views
 from reid.app.find_data import PAGE, VIEWS, Selection
 from reid.app.state import AppContext
-from reid.app.tabs import explore
 from reid.attributes import ui_labels
 from reid.attributes.annotate import EnvStatus
 from reid.find import PersonHit, person_attributes
@@ -117,13 +116,12 @@ def open_detail(ctx: AppContext, key: str, sel: Selection):
     person = find_data.find_person(out, key) if out.ready else None
     if person is None:
         gr.Info("That result changed. Click a card again.")
-        return (gr.update(),) * 8
+        return (gr.update(),) * 6
     named = person.gid is not None
     head, body = detail_for(ctx, out, person, sel)
     return (
         gr.update(visible=True), head, body, person.gid,
         gr.update(visible=named), gr.update(visible=named),
-        gr.update(value=None, visible=False), "",
     )  # fmt: skip
 
 
@@ -189,7 +187,7 @@ def build(ctx: AppContext) -> gr.Tab:
                     info="Adds labels the model gets wrong more often, such as jacket or hat.",
                     elem_classes="rd-switch",
                 )  # fmt: skip
-        drawer, close, head, detail, to_explore, clip_btn, clip_note, clip = _drawer()
+        drawer, close, head, detail, to_explore, to_clips = _drawer()
         pick = gr.Textbox(elem_id="find-pick", elem_classes="rd-hidden", show_label=False)
 
     controls = [cameras, t_from, t_to, strict, view, *groups]
@@ -219,9 +217,12 @@ def build(ctx: AppContext) -> gr.Tab:
     def on_pick(raw: str, *vals):
         return open_detail(ctx, (raw or "").split("|")[0], to_selection(*vals))
 
-    def clip_click(gid, progress=gr.Progress()):  # noqa: B008 (Gradio's progress idiom)
-        path, note = videos.render_or_note(lambda: explore.make_clip(ctx, gid, progress))
-        return gr.update(value=path, visible=path is not None), note
+    def open_clip(gid, cams, start, end, limits):
+        """Open Clips on this person with Find's cameras and time window (unchanged = open)."""
+        lo, hi = limits
+        a = None if start is None or start <= lo else start
+        b = None if end is None or end >= hi else end
+        return clips_data.make_prefill(gid, cams, a, b), gr.Tabs(selected="clips")
 
     def annotate_click():
         gr.Info(find_data.annotate_now(ctx))
@@ -245,16 +246,17 @@ def build(ctx: AppContext) -> gr.Tab:
     ).then(**run_io)
     tab.select(**scope_io).then(**run_io)
     pick.change(on_pick, [pick, *controls],
-               [drawer, head, detail, detail_gid, to_explore, clip_btn, clip, clip_note],
+               [drawer, head, detail, detail_gid, to_explore, to_clips],
                show_progress="hidden")  # fmt: skip
     close.click(lambda: gr.update(visible=False), None, drawer)
     to_explore.click(
         lambda g: (g, gr.Tabs(selected="explore")), detail_gid,
         [ctx.ui["explore_person"], ctx.ui["tabs"]],
     )  # fmt: skip
-    clip_btn.click(
-        clip_click, detail_gid, [clip, clip_note], concurrency_limit=1, concurrency_id="render"
-    )
+    to_clips.click(
+        open_clip, [detail_gid, cameras, t_from, t_to, bounds],
+        [ctx.ui["clips_prefill"], ctx.ui["tabs"]],
+    )  # fmt: skip
     return tab
 
 
@@ -283,8 +285,6 @@ def _drawer():
         head = gr.HTML()
         with gr.Row(elem_classes="rd-drawer-actions"):
             to_explore = gr.Button("Open in Explore", variant="primary", visible=False)
-            clip_btn = gr.Button("Follow clip", visible=False)
-        clip_note = gr.HTML(elem_classes="rd-note")
-        clip = gr.Video(show_label=False, autoplay=False, height=240, visible=False)
+            to_clips = gr.Button("Follow clip", visible=False)
         detail = gr.HTML()
-    return drawer, close, head, detail, to_explore, clip_btn, clip_note, clip
+    return drawer, close, head, detail, to_explore, to_clips

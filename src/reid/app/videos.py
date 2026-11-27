@@ -6,7 +6,7 @@ inline notice instead of a traceback. Browsing and search never need the videos.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from reid.app import components as C
 from reid.app.state import AppContext
@@ -14,12 +14,18 @@ from reid.storage import db
 from reid.viz.video_io import resolve_video
 
 
-def missing_cameras(ctx: AppContext) -> list[str]:
-    """Names of the cameras whose source video cannot be found on this machine."""
+def missing_cameras(ctx: AppContext, only: Iterable[str] | None = None) -> list[str]:
+    """Names of the cameras whose source video cannot be found on this machine.
+
+    ``only`` limits the check to those camera ids (a clip needs just the cameras it shows).
+    """
+    wanted = None if only is None else set(only)
     with ctx.db() as conn:
         cams = db.list_cameras(conn)
     gone = []
     for cam in cams:
+        if wanted is not None and cam.id not in wanted:
+            continue
         try:
             resolve_video(cam.video_path, ctx.data_dir, cam.id)
         except FileNotFoundError:
@@ -27,9 +33,9 @@ def missing_cameras(ctx: AppContext) -> list[str]:
     return gone
 
 
-def availability_note(ctx: AppContext) -> str:
-    """Notice when any camera video is missing, else an empty string."""
-    gone = missing_cameras(ctx)
+def availability_note(ctx: AppContext, only: Iterable[str] | None = None) -> str:
+    """Notice when any camera video (of ``only``, default all) is missing, else ``""``."""
+    gone = missing_cameras(ctx, only)
     if not gone:
         return ""
     shown = ", ".join(gone[:4]) + (f" and {len(gone) - 4} more" if len(gone) > 4 else "")

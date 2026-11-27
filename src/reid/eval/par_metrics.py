@@ -6,6 +6,7 @@ standard protocol).
 
 * Label-based: per label positive recall, negative recall and their mean (the mA term); mA is the
   mean over labels that have at least one positive and one negative among the known targets.
+* ``label_auc``: per-label ROC AUC (threshold free), NaN without both classes.
 * Instance-based (Li et al. 2015; Rethinking_of_PAR convention): per image, over its known labels,
   ``Acc = |Y & P| / |Y | P|``, ``Prec = |Y & P| / |P|``, ``Rec = |Y & P| / |Y|``; images with no
   known positive and no predicted positive are skipped. ``F1 = 2 Prec Rec / (Prec + Rec)`` of the
@@ -34,6 +35,22 @@ def label_stats(
         nr = np.where(n_neg > 0, tn / np.maximum(n_neg, 1), np.nan)
     ma = np.where((n_pos > 0) & (n_neg > 0), (pr + nr) / 2, np.nan)
     return {"n_pos": n_pos, "n_neg": n_neg, "pos_recall": pr, "neg_recall": nr, "ma_term": ma}
+
+
+def label_auc(probs: np.ndarray, targets: np.ndarray) -> np.ndarray:
+    """Per-label ROC AUC over the known targets (rank statistic); NaN without both classes."""
+    from scipy.stats import rankdata
+
+    p, t = np.asarray(probs), np.asarray(targets)
+    out = np.full(p.shape[1], np.nan)
+    for j in range(p.shape[1]):
+        known = t[:, j] != UNKNOWN
+        y = t[known, j] == 1
+        n_pos, n_neg = int(y.sum()), int((~y).sum())
+        if n_pos and n_neg:
+            ranks = rankdata(p[known, j])
+            out[j] = (ranks[y].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+    return out
 
 
 def mean_accuracy(

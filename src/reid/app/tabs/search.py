@@ -5,8 +5,8 @@ from __future__ import annotations
 import gradio as gr
 
 from reid import search
+from reid.app import clips_data, views
 from reid.app import components as C
-from reid.app import views
 from reid.app.media import array_uri, fetch_image, rgb_to_bgr
 from reid.app.state import AppContext
 from reid.storage import db
@@ -89,7 +89,9 @@ def build(ctx: AppContext) -> gr.Tab:
                 result = gr.HTML(
                     C.empty_state("Results appear here", "Add a photo and press Search.")
                 )
-                to_explore = gr.Button("Open in Explore", visible=False)
+                with gr.Row():
+                    to_explore = gr.Button("Open in Explore", visible=False)
+                    to_clips = gr.Button("Make a clip", visible=False)
 
     def go_click(img, link, m, c, progress=gr.Progress()):  # noqa: B008 (Gradio's progress idiom)
         return run_search(ctx, img, link, m, c, progress)
@@ -98,7 +100,12 @@ def build(ctx: AppContext) -> gr.Tab:
     go.click(
         go_click, [image, url, mode, crop], [result, found, to_explore],
         concurrency_limit=1, concurrency_id="gpu",
-    )  # fmt: skip
+    ).then(lambda g: gr.update(visible=g is not None), found, to_clips)  # fmt: skip
+    to_clips.click(
+        lambda g: (clips_data.make_prefill(g), gr.Tabs(selected="clips")),
+        found,
+        [ctx.ui["clips_prefill"], ctx.ui["tabs"]],
+    )
     to_explore.click(
         lambda g: (g, gr.Tabs(selected="explore")),
         found,

@@ -123,11 +123,11 @@ def test_not_annotated_and_empty_environments(tmp_path):
 
 def test_detail_drawer(ctx):
     sel = Selection(chips=("female", "upper_red"))
-    drawer, head, body, gid, to_explore, clip_btn, clip, note = find_tab.open_detail(ctx, "g1", sel)
-    assert drawer["visible"] and gid == 1 and to_explore["visible"] and clip_btn["visible"]
+    drawer, head, body, gid, to_explore, to_clips = find_tab.open_detail(ctx, "g1", sel)
+    assert drawer["visible"] and gid == 1 and to_explore["visible"] and to_clips["visible"]
     assert "Person 1" in head and "best match" in head and "Apparent" not in head
     assert "Female (apparent)" in body and "Looks like" in body
-    assert "2 appearances" in body and clip["visible"] is False and note == ""
+    assert "2 appearances" in body
     _, head, _, gid, to_explore, *_ = find_tab.open_detail(ctx, "t4", sel)  # unidentified
     assert gid is None and to_explore["visible"] is False and "Unidentified" in head
     assert find_tab.open_detail(ctx, "g99", sel)[0] == gr.update()  # stale card: nothing opens

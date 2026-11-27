@@ -12,7 +12,7 @@ import gradio as gr
 from reid.app import components as C
 from reid.app import envbar
 from reid.app.state import AppContext
-from reid.app.tabs import admin, cameras, explore, find, metrics, overview, process, search
+from reid.app.tabs import admin, cameras, clips, explore, find, metrics, overview, process, search
 from reid.app.theme import ReidTheme, launch_style
 from reid.config import Config
 
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["AppContext", "ReidTheme", "build_app", "launch", "launch_style"]
 
-TABS = (overview, process, explore, search, find, cameras, metrics)
+TABS = (overview, process, explore, clips, search, find, cameras, metrics)
 
 
 def build_app(
@@ -49,6 +49,7 @@ def build_app(
             )
         )
         envbar.build(ctx)
+        ctx.ui["clips_prefill"] = gr.State(None)  # other tabs open Clips by setting it
         with gr.Tabs() as tabs:
             ctx.ui["tabs"] = tabs
             for module in TABS:
