@@ -127,6 +127,60 @@ The attribute head was tested zero-shot on Market-1501 (nothing trained or tuned
 carried objects transfer well; colours, lower-body colours most of all, are the weak group. Protocol, per-label
 tables and caveats: [Market-1501 zero-shot test](docs/market1501_zero_shot.md).
 
+## Techniques and technologies
+
+What went into this project, from the models to the evaluation:
+
+**Combining models into one pipeline.** Five kinds of models work together on every video:
+- people detection with pose keypoints (YOLO26-pose, or RF-DETR);
+- multi-object tracking (BoT-SORT, ByteTrack, OccluBoost);
+- body re-identification embeddings (CLIP-ReID ViT-B/16, or OSNet for the light preset);
+- face detection and recognition (InsightFace SCRFD + ArcFace, through ONNX Runtime);
+- a pedestrian-attribute head trained for this project.
+
+Only good views are embedded: quality gating on pose visibility, detection confidence, size and frame edges.
+Tracklets are cut automatically when the tracker swaps two people.
+
+**Open-world identity (no list of known people).**
+- A self-adaptive gallery with a softmax ratio test (Casao et al., 2023) and verify-before-update insertion.
+- Faces are used as the strongest evidence. Constraints prevent impossible merges, such as one person in two
+  places at once (cannot-links).
+- Unknown people are clustered with DBSCAN.
+- At the end of a run, constrained agglomerative clustering merges fragments of the same person, with face
+  must-links, and every merge can be undone.
+- Each person's gallery is summarised by quality-weighted farthest-point sampling (alpha-FPS, an in-house
+  variant).
+
+**Transfer learning on two datasets.** The attribute head is an MLP trained on top of the frozen CLIP-ReID
+embedding:
+- PA-100K and PETA are merged into one 67-label schema. Labels a dataset does not have are masked out of the
+  loss.
+- A weighted binary cross-entropy handles the rare attributes.
+- PETA is split by person, so no identity leaks into the test set.
+- Per-label thresholds are tuned on validation data.
+- Embeddings of about 220,000 crops are computed once and cached, so one training run takes about 20 s on a T4.
+
+**Hyperparameter optimisation.** Optuna (TPE sampler, median pruner), with one shared study run in parallel on
+two Kaggle T4 GPUs.
+
+**Evaluation done properly.**
+- NVIDIA's official AI City evaluator (HOTA, DetA, AssA) on full 16-camera scenes, tuning on one scene and
+  reporting the unseen ones.
+- MOT metrics and held-out retrieval Rank-1.
+- A zero-shot cross-dataset test of the attribute head (Market-1501), with bootstrap confidence intervals over
+  identities and voting over the crops of a person.
+
+**Geometry.** Camera calibration (homographies) projects every box onto the floor plan for the benchmark.
+
+**Engineering for small GPUs.**
+- A planner puts each model on the GPU or the CPU from the free memory and a measured cost table.
+- Out-of-memory recovery halves the batch, then falls back to the CPU.
+- It runs on a 3 GB Pascal laptop GPU, a free Colab or Kaggle T4, or a CPU alone.
+
+**Software.** PyTorch, Ultralytics, boxmot, InsightFace, ONNX Runtime, scikit-learn, Optuna, OpenCV, FFmpeg,
+SQLite, NumPy / faiss vector store, pydantic config, Gradio app. It is an installable package with a CLI,
+generated Colab and Kaggle notebooks, and tests on synthetic data (pytest, ruff, GitHub Actions).
+
 ## The app
 
 A Gradio web app on top of the same local database. The captures below run on AI City scene 075 (16 cameras,
@@ -151,18 +205,6 @@ preset and run. Here three warehouse clips on a GTX 1050 laptop GPU (waiting spe
 </tr>
 </table>
 
-Click a GIF for the full-resolution video.
-
-| | |
-|---|---|
-| ![Overview: headline numbers, everyone seen and the cameras](assets/showcase/app_overview.png) | ![Explore: one person's profile and journey across cameras](assets/showcase/app_explore.png) |
-| ![Cameras: one camera's annotated video with Person 6 highlighted](assets/showcase/app_cameras.png) | ![Metrics: speed and GPU memory of the run](assets/showcase/app_metrics.png) |
-
-Tabs: **Overview** (people and cameras), **Process** (upload videos or paste video links), **Explore**
-(a person's journey and time line), **Clips** (a follow-this-person video), **Search** (by body, face or both),
-**Find** (by description), **Cameras** (annotated videos, all cameras side by side, hand-offs between cameras),
-**Metrics** (speed per stage, GPU memory, evaluation) and **Admin** (merge, split, rename, delete,
-environments). Public links require a login.
 
 ## Run it
 
