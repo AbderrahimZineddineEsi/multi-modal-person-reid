@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 An installable Python package, `reid` (src layout, `src/reid`, version 0.2.0, AGPL-3.0), for multi-camera person
 Re-ID with face association: detect, track, build tracklets, assign persistent identities, then search, analytics,
 rendering and a Gradio app. All state is local (SQLite + numpy vectors + crops in one folder); there is no cloud
-service. Display name **Sightline**. `main` holds v2, the rewrite of the v1 Kaggle notebooks (tag `v1-kaggle`). `team_materials/` is other people's
-work, git-ignored: do not edit or commit it.
+service. Display name **Sightline**. `main` holds v2, the rewrite of the v1 Kaggle notebooks (tag `v1-kaggle`). The student team
+project's materials (other people's work) are in `archive/team_materials/` (private): never copy them into this repo.
 
 Read first when relevant: `docs/technical_report.md` (how it works, parameters, results), `archive/docs/dev/PLAN.md`
 (design decisions), `archive/docs/dev/changes_log.md` (every change with measurements),
