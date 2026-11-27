@@ -82,7 +82,7 @@ code(
     """
 import os
 
-REID_REF = "attributes"  # branch or tag of the repository to install
+REID_REF = "main"  # branch or tag of the repository to install
 PRESET = "balanced"  # body model preset ("balanced" = CLIP-ReID ViT-B/16)
 WORK = "/kaggle/working/attributes"  # everything worth keeping (the version output)
 DATA = "/kaggle/temp/attr_data"  # downloaded datasets: scratch space, NOT saved (~120k files)

@@ -111,7 +111,7 @@ code(
     """
 import os
 
-REID_REF = "attributes"  # branch or tag of the repository to install
+REID_REF = "main"  # branch or tag of the repository to install
 WORK = "/kaggle/working/attributes_hpo"  # everything worth keeping (the version output)
 TIMEOUT_MIN = 25  # minutes of search PER GPU process (the real limit)
 TRIALS_PER_GPU = 400  # upper bound per process; the timeout stops the search first

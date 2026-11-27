@@ -7,17 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 An installable Python package, `reid` (src layout, `src/reid`, version 0.2.0, AGPL-3.0), for multi-camera person
 Re-ID with face association: detect, track, build tracklets, assign persistent identities, then search, analytics,
 rendering and a Gradio app. All state is local (SQLite + numpy vectors + crops in one folder); there is no cloud
-service. Branch `v2` is the rewrite of the v1 Kaggle notebooks (tag `v1-kaggle`). `team_materials/` is other people's
+service. Display name **Sightline**. `main` holds v2, the rewrite of the v1 Kaggle notebooks (tag `v1-kaggle`). `team_materials/` is other people's
 work, git-ignored: do not edit or commit it.
 
-Read first when relevant: `docs/technical_report.md` (how it works, parameters, results), `docs/dev/PLAN.md`
-(design decisions), `docs/dev/changes_log.md` (every change with measurements), `docs/v1_to_v2_report.md` (history),
+Read first when relevant: `docs/technical_report.md` (how it works, parameters, results), `archive/docs/dev/PLAN.md`
+(design decisions), `archive/docs/dev/changes_log.md` (every change with measurements),
+`archive/docs/v1_to_v2_report.md` (history),
 `docs/local_app.md` (PC use, sync), `docs/future_work.md`.
 
-**Private docs:** `docs/dev/`, `docs/v1_to_v2_report.md` and `docs/todo.md` are git-ignored (local only) and backed
-up in the private repo `open-world-multicam-reid-archive`. Keep using and updating them locally (the changes-log
-convention below still applies), but never commit them or link to them from public files (README, technical
-report). Re-copy them into the archive repo after significant changes.
+**Private archive:** `archive/` is a local clone of the private repo `open-world-multicam-reid-archive`
+(git-ignored here). It holds the private docs (`archive/docs/dev/`, `archive/docs/v1_to_v2_report.md`,
+`archive/docs/todo.md`), Kaggle runs, notes, study pages, the v1 version and the promo kit (`archive/promo/`).
+Edit the docs there (the changes-log convention below still applies), commit and push them in that repo, and never
+copy them into this repo or link to them from public files (README, technical report).
 
 ## Commands
 
@@ -98,7 +100,7 @@ for reasonable speed; do not run them just to check something that unit tests co
   benchmark walkthrough, `kaggle_aicity_benchmark.ipynb` the official 4-scene benchmark on 2x T4.
 - **Generated files:** `configs/default.yaml` (from `config.py`; a test fails if stale) and `notebooks/*.ipynb`.
 - **NVIDIA's evaluator is not vendored** (licence): `eval/aicity_official.py` downloads it at run time.
-- **Log every behavioural change** in `docs/dev/changes_log.md` in the existing format
+- **Log every behavioural change** in `archive/docs/dev/changes_log.md` in the existing format
   (`[component] v1: ... -> v2: ... Why: ...`) with measurements, and update `docs/technical_report.md` when a
   default, algorithm or schema changes. Never claim a number that was not measured.
 - Keep files near or under 300 lines, use type hints and docstrings, log with `logging` (no `print` in the package),

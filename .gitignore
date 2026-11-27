@@ -50,3 +50,9 @@ learn/
 docs/dev/
 docs/v1_to_v2_report.md
 docs/todo.md
+
+# Promo footage (cleared for public use, see assets/promo/PROMO.md)
+!assets/promo/*.mp4
+
+# Local clone of the private archive repo (open-world-multicam-reid-archive)
+archive/

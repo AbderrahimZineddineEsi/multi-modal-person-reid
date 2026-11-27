@@ -21,7 +21,7 @@ from pathlib import Path
 REPO_URL = "https://github.com/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid"
 COLAB_URL = (
     "https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid"
-    "/blob/v2/notebooks/colab_demo.ipynb"
+    "/blob/main/notebooks/colab_demo.ipynb"
 )
 NB_DIR = Path(__file__).resolve().parents[1] / "notebooks"
 WALK_URL = COLAB_URL.replace("colab_demo", "colab_walkthrough")
@@ -98,7 +98,7 @@ code(
     """
 import os
 
-REID_REF = "v2"  # branch or tag of the repository to install
+REID_REF = "main"  # branch or tag of the repository to install
 os.environ["REID_REF"] = REID_REF
 """,
     "colab-only",
@@ -459,7 +459,7 @@ code(
     """
 import os
 
-REID_REF = "v2"  # branch or tag of the repository to install
+REID_REF = "main"  # branch or tag of the repository to install
 os.environ["REID_REF"] = REID_REF
 """,
     "colab-only",

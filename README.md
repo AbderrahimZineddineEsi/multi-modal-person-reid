@@ -22,7 +22,7 @@ timeline shows where he was seen. He keeps the same ID in every camera, without 
 Other people were blurred for privacy, but they are detected and tracked too (see the 16-camera view below).
 [Video](assets/showcase/aicity_follow.mp4) · footage: NVIDIA AI City 2024, CC-BY-4.0.*
 
-[![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/v2/notebooks/colab_demo.ipynb)
+[![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/main/notebooks/colab_demo.ipynb)
 
 ---
 
@@ -210,7 +210,7 @@ preset and run. Here three warehouse clips on a GTX 1050 laptop GPU (waiting spe
 
 ### On Colab (free GPU)
 
-Open the [launcher notebook](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/v2/notebooks/colab_demo.ipynb),
+Open the [launcher notebook](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/main/notebooks/colab_demo.ipynb),
 choose a T4 runtime and run all cells. It installs the package, mounts Google Drive (your data persists
 there) and prints a public link and a login for the app. Processing happens from the app.
 [colab_walkthrough.ipynb](notebooks/colab_walkthrough.ipynb) reproduces the benchmark step by step.

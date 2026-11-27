@@ -87,7 +87,7 @@ code(
     """
 import os
 
-REID_REF = "kaggle-benchmark"  # branch or tag of the repository to install
+REID_REF = "main"  # branch or tag of the repository to install
 PRESET = "balanced"  # "lite" | "balanced" | "accurate" | "max"
 SCENES = ["075", "078", "082", "086"]  # test scenes 071-090 have 16 cameras (089 has 15)
 FRAME_STRIDE = 2  # process every 2nd frame (the measured 34 fps used this)
