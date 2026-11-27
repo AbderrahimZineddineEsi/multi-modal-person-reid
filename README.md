@@ -13,14 +13,14 @@ card or even a CPU, keeps all data local, and ships as an installable Python pac
 web app.
 
 <p align="center">
-  <a href="assets/showcase/aicity_follow.mp4"><img src="assets/showcase/aicity_follow.gif" width="760" alt="One shopper followed across four cameras of a 16-camera store with the same ID"></a>
+  <a href="assets/showcase/aicity_follow.mp4"><img src="assets/showcase/aicity_follow.gif" width="840" alt="One shopper followed across four cameras of a 16-camera store with the same ID"></a>
 </p>
 
-*One shopper (ID 6) followed through four of the 16 cameras of an AI City Challenge store: the large view cuts to
-whichever camera sees him, the timeline shows where he was seen. He keeps the same ID in every camera,
-without any training on this data. Other people were blurred for privacy,
-but they are detected and tracked too (see the 16-camera view below).
-[Full clip](assets/showcase/aicity_follow.mp4) · footage: NVIDIA AI City 2024, CC-BY-4.0.*
+*One shopper (ID 6) followed through four of the 16 cameras of an AI City Challenge store, 50 seconds at 3x
+speed: the large view cuts to whichever camera sees him, the side views show the other cameras live, and the
+timeline shows where he was seen. He keeps the same ID in every camera, without any training on this data.
+Other people were blurred for privacy, but they are detected and tracked too (see the 16-camera view below).
+[Video](assets/showcase/aicity_follow.mp4) · footage: NVIDIA AI City 2024, CC-BY-4.0.*
 
 [![Open the app in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbderrahimZineddineEsi/open-world-multimodal-multicam-reid/blob/v2/notebooks/colab_demo.ipynb)
 
