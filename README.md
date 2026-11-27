@@ -35,8 +35,11 @@ but they are detected and tracked too (see the 16-camera view below).
    (CLIP-ReID), face evidence (ArcFace) used as the strongest signal, and constraints such as "one person cannot
    be in two places at the same time". Unknown people are clustered into new identities; fragments of one
    person are merged at the end of a run, reversibly.
-4. **Answers questions**: search by photo (body, face or both), each person's journey and time line, dwell
-   times, a follow-this-person video that cuts from camera to camera, and tracking metrics.
+4. **Describes people**: a small attribute head on the same body embedding (trained on PA-100K + PETA)
+   predicts gender, age group, clothing type and colours, hats, bags and more for every tracklet, so people can be
+   found from a description ("a man in a black jacket with a backpack").
+5. **Answers questions**: search by photo (body, face or both) or by description, each person's journey and time
+   line, dwell times, a follow-this-person video that cuts from camera to camera, and tracking metrics.
 
 Everything is stored locally (SQLite + NumPy + image files) in self-contained *environments*, one per set of
 cameras, so nothing needs a cloud account.
@@ -116,16 +119,56 @@ taken from one camera returns the right person (4 out of 4). Footage: Pexels, se
 3 of 4 men linked across every camera they appear in (the fourth is only visible in two cameras and gets one
 identity there), search 4/4. Processed on a laptop-class GTX 1050 (3 GB) at 8.5 fps with the default `balanced` preset.
 
+### Attributes on a dataset it never saw
+
+The attribute head was tested zero-shot on Market-1501 (nothing trained or tuned on it, fixed 0.5 threshold,
+21 mapped labels): **mA 80.5% per image and 82.6% per person** when the crops of one person vote. Clothing and
+carried objects transfer well; colours, lower-body colours most of all, are the weak group. Protocol, per-label
+tables and caveats: [Market-1501 zero-shot test](docs/market1501_zero_shot.md).
+
 ## The app
+
+A Gradio web app on top of the same local database. The captures below run on AI City scene 075 (16 cameras,
+46 identities); everyone except the men is blurred for privacy by the app's showcase mode.
+
+**Find people by how they look.** Tick what the person looked like (here: male, black top) and the 1,787
+appearances of the scene are re-ranked as you click, closest match first. A card opens every appearance of that
+person, with links to their journey and to a follow clip.
+
+<p align="center">
+  <a href="assets/showcase/app_find.mp4"><img src="assets/showcase/app_find.gif" width="840" alt="Find tab: filtering people by gender and clothing colour, then opening one person"></a>
+</p>
+
+**Search by photo.** Drop in a photo of someone and get their identity, how sure the match is, and where and
+when they were seen. Body, face or both.
+
+<p align="center">
+  <a href="assets/showcase/app_search.mp4"><img src="assets/showcase/app_search.gif" width="840" alt="Search tab: a photo of one man matched to Person 6 with his journey"></a>
+</p>
+
+**Follow one person.** Pick a person, the cameras, a time window and a playback speed. The plan (which camera
+is shown when, what gets skipped) and the render time estimate appear before anything is rendered; the clip
+cuts to whichever camera sees them.
+
+<p align="center">
+  <a href="assets/showcase/app_clips.mp4"><img src="assets/showcase/app_clips.gif" width="840" alt="Clips tab: planning and playing a follow clip of Person 6"></a>
+</p>
+
+**Process new footage.** Create an environment, upload videos (or paste links), choose a preset and run. Here
+three warehouse clips on a GTX 1050 laptop GPU (the waiting is sped up).
+
+<p align="center">
+  <a href="assets/showcase/app_process.mp4"><img src="assets/showcase/app_process.gif" width="840" alt="Process tab: three videos uploaded and processed into a new environment"></a>
+</p>
 
 | | |
 |---|---|
-| ![Overview](assets/showcase/app_overview.png) | ![Explore a person](assets/showcase/app_explore.png) |
-| ![Search by photo](assets/showcase/app_search.png) | ![Metrics](assets/showcase/app_metrics.png) |
+| ![Overview: headline numbers, everyone seen and the cameras](assets/showcase/app_overview.png) | ![Explore: one person's profile and journey across cameras](assets/showcase/app_explore.png) |
+| ![Cameras: one camera's annotated video with Person 6 highlighted](assets/showcase/app_cameras.png) | ![Metrics: speed and GPU memory of the run](assets/showcase/app_metrics.png) |
 
 Tabs: **Overview** (people and cameras), **Process** (upload videos or paste video links), **Explore**
-(a person's journey and time line), **Clips** (a follow-this-person video: pick cameras, time window and speed,
-see the plan and the render time first), **Search** (by body, face or both), **Cameras**,
+(a person's journey and time line), **Clips** (a follow-this-person video), **Search** (by body, face or both),
+**Find** (by description), **Cameras** (annotated videos, all cameras side by side, hand-offs between cameras),
 **Metrics** (speed per stage, GPU memory, evaluation) and **Admin** (merge, split, rename, delete,
 environments). Public links require a login.
 

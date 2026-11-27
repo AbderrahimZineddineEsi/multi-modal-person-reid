@@ -1,6 +1,6 @@
 # Showcase credits
 
-All footage used in these assets is by **Tiger Lily** on Pexels, released under the
+The warehouse footage is by **Tiger Lily** on Pexels, released under the
 [Pexels License](https://www.pexels.com/license/) (free to use, attribution appreciated).
 The clips show the same four male warehouse workers from eight angles. The clips are shown one
 after another on the timeline (3 s gaps), not simultaneously, so each "camera" is a separate clip.
@@ -24,10 +24,19 @@ Processing: `reid process --preset balanced --set consolidation.merge_threshold=
 - `hero.mp4`: the full 90 s follow clip of ID 1 across all eight cameras (H.264) for LinkedIn / video embeds.
 - `overhead.gif`: one high-angle camera (dock meeting point) rendered with identity boxes and ID labels.
 - `identities.png`: the four people found, one best crop each, with the number of cameras they were seen in.
-- `app_overview.png`: Overview tab of the Gradio app (people, cameras, run statistics).
-- `app_explore.png`: Explore tab for Person 1 (journey list across cameras and presence-over-time chart).
-- `app_search.png`: Search tab, a body-photo query (held-out frame from one camera) matched to Person 1.
-- `app_metrics.png`: Metrics tab (speed, GPU memory, time per stage).
+## App captures (`app_*`)
+
+Screen recordings and screenshots of the Gradio app, made with `reid app --showcase FILE`: the app blurs every
+person who is not on a hand-picked allow-list of men (default deny, see the technical report). All of them except
+`app_process.*` show AI City 2024 scene 075 (footage below), processed with the `balanced` preset.
+
+- `app_find.gif` / `.mp4`: Find tab, filters "male" then "black" upper-body colour, then Person 11's card.
+- `app_search.gif` / `.mp4`: Search tab, a body photo of Person 6 cut from camera cam_0712, matched to Person 6.
+- `app_clips.gif` / `.mp4`: Clips tab, a follow clip of Person 6 (4x speed, 30 s cap), planned, then played.
+- `app_process.gif` / `.mp4`: Process tab, three 10 s excerpts of the Pexels warehouse clips 4293549, 4281405
+  and 4284181 (above) processed into a new environment on the GTX 1050; the waiting is sped up 20x.
+- `app_overview.png`, `app_explore.png` (Person 6), `app_cameras.png` (cam_0712, Person 6 highlighted),
+  `app_metrics.png`.
 
 ## AI City Challenge clips (`aicity_follow.*`, `aicity_mosaic.*`)
 
