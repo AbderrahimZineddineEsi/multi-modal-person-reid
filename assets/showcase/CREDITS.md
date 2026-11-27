@@ -34,7 +34,7 @@ person who is not on a hand-picked allow-list of men (default deny, see the tech
 - `app_search.gif` / `.mp4`: Search tab, a body photo of Person 6 cut from camera cam_0712, matched to Person 6.
 - `app_clips.gif` / `.mp4`: Clips tab, a follow clip of Person 6 (4x speed, 30 s cap), planned, then played.
 - `app_process.gif` / `.mp4`: Process tab, three 10 s excerpts of the Pexels warehouse clips 4293549, 4281405
-  and 4284181 (above) processed into a new environment on the GTX 1050; the waiting is sped up 20x.
+  and 4284181 (above) processed into a new environment on the GTX 1050; the waiting is sped up.
 - `app_overview.png`, `app_explore.png` (Person 6), `app_cameras.png` (cam_0712, Person 6 highlighted),
   `app_metrics.png`.
 
