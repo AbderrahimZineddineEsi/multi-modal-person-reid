@@ -54,6 +54,7 @@ class AppContext:
     ) -> None:
         self.read_only = read_only
         self.ui: dict[str, Any] = {}  # components that tabs register for each other
+        self.find_cache: dict[str, Any] = {}  # Find tab: attribute table of the selected env
         self._models: Models | None = None
         self._models_key = ""
         self._lock = threading.Lock()

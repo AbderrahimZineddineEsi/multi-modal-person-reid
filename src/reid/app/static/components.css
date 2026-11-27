@@ -119,11 +119,11 @@ footer { opacity: .5; }
 .rd-matrix, .rd-matrix th, .rd-matrix td { border: none !important; }
 .rd-matrix { border-collapse: separate; border-spacing: 4px; font-size: 13px; }
 .rd-matrix th { font-family: var(--rd-mono); font-weight: 400; font-size: 12px; color: var(--rd-muted);
-  padding: 6px 10px; text-align: left; }
-.rd-matrix td { min-width: 64px; height: 40px; text-align: center; border-radius: 4px; font-weight: 600;
+  padding: 6px 8px; text-align: left; white-space: nowrap; }
+.rd-matrix td { min-width: 46px; height: 36px; text-align: center; border-radius: 4px; font-weight: 600;
   background: color-mix(in srgb, var(--rd-text) calc(var(--a) * 80%), var(--rd-raised));
-  color: color-mix(in srgb, #0d1012 calc(var(--a) * 100%), var(--rd-text)); }
-
+  color: hsl(0 0% calc((0.6 - var(--a)) * 100000%)); }  /* light text on dark cells, dark on light */
+.rd-scroll { overflow-x: auto; padding-bottom: 6px; }
 
 /* person crops are tall: keep heads in view when cropping to a square */
 .rd-picker img { object-position: top center !important; }

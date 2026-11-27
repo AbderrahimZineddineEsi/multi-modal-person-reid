@@ -212,8 +212,8 @@ def transitions_html(cams: Sequence[str], mat: np.ndarray) -> str:
         )
         body.append(f"<tr><th>{escape(c)}</th>{cells}</tr>")
     return (
-        '<table class="rd-matrix"><thead><tr><th>from / to</th>'
-        f"{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+        '<div class="rd-scroll"><table class="rd-matrix"><thead><tr><th>from / to</th>'
+        f"{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
     )
 
 

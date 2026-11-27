@@ -12,7 +12,7 @@ import gradio as gr
 from reid.app import components as C
 from reid.app import envbar
 from reid.app.state import AppContext
-from reid.app.tabs import admin, cameras, explore, metrics, overview, process, search
+from reid.app.tabs import admin, cameras, explore, find, metrics, overview, process, search
 from reid.app.theme import ReidTheme, launch_style
 from reid.config import Config
 
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["AppContext", "ReidTheme", "build_app", "launch", "launch_style"]
 
-TABS = (overview, process, explore, search, cameras, metrics)
+TABS = (overview, process, explore, search, find, cameras, metrics)
 
 
 def build_app(

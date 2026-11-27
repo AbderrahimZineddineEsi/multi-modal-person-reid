@@ -61,6 +61,7 @@ def test_build_app_is_lazy_and_has_expected_tabs(tmp_path):
         "Process",
         "Explore",
         "Search",
+        "Find",
         "Cameras",
         "Metrics",
         "Admin",

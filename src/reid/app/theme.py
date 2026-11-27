@@ -103,14 +103,32 @@ class ReidTheme(gr.themes.Base):
         super().set(**both)
 
 
-CSS_FILES = ("base.css", "components.css", "chrome.css")
+# runs once at page load: dark mode, the card click hook of the Find tab, Esc closes its drawer
+JS = """() => {
+  document.body.classList.add('dark');
+  window.rdPick = (key) => {
+    const box = document.querySelector('#find-pick textarea, #find-pick input');
+    if (!box) return;
+    box.value = key + '|' + Date.now();
+    box.dispatchEvent(new Event('input', {bubbles: true}));
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.querySelector('.rd-drawer-close')?.click();
+  });
+}"""
+
+CSS_FILES = ("base.css", "components.css", "find.css", "chrome.css")
 
 
 def css() -> str:
-    """The stylesheet: the files of ``static/`` joined in :data:`CSS_FILES` order."""
-    return "\n".join((STATIC / name).read_text(encoding="utf-8") for name in CSS_FILES)
+    """The stylesheet: the files of ``static/`` in :data:`CSS_FILES` order, then the rules
+    generated from the Find filter catalogue."""
+    from reid.app.find_css import catalogue_css
+
+    parts = [(STATIC / name).read_text(encoding="utf-8") for name in CSS_FILES]
+    return "\n".join([*parts, catalogue_css()])
 
 
 def launch_style() -> dict[str, Any]:
     """Keyword arguments for ``Blocks.launch``: Gradio 6 takes theme and CSS at launch time."""
-    return {"theme": ReidTheme(), "css": css(), "js": "() => document.body.classList.add('dark')"}
+    return {"theme": ReidTheme(), "css": css(), "js": JS}

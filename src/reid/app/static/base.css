@@ -8,7 +8,7 @@
 :root {
   --rd-bg: #0d1012; --rd-panel: #14181b; --rd-raised: #1b2125; --rd-line: #2a3338;
   --rd-line-soft: #202a2e;
-  --rd-text: #ebe8df; --rd-muted: #929a9e; --rd-faint: #626c71; --rd-accent: #ebe8df;
+  --rd-text: #ebe8df; --rd-muted: #929a9e; --rd-faint: #7b868b; --rd-accent: #ebe8df;
   --rd-ok: #6fcf97; --rd-warn: #e3b564; --rd-bad: #e5655c;
   --rd-display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
   --rd-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -26,7 +26,7 @@
 @media (max-width: 900px) { .gradio-container { padding: 0 14px !important; } }
 
 /* header: wordmark and the one-line promise */
-.rd-header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 22px 2px 16px; }
+.rd-header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 2px 2px; }
 .rd-logo { flex: none; }
 .rd-brand { flex: 1; min-width: 240px; }
 .rd-header h1 { margin: 0; font-family: var(--rd-display); font-size: 30px; font-weight: 650;
